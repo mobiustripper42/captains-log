@@ -1,0 +1,9 @@
+{
+  "REPLACE_ME": {
+    "name": "Eric",
+    "full_name": "Eric Stoffer",
+    "role": "owner",
+    "active": true,
+    "notes": "Owner / dev test captain. Replace the JSON key with Eric's mobile in E.164 (+1XXXXXXXXXX) before live use. Real captains added as testing expands."
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "captainslog",
+  "version": "0.1.0",
+  "description": "SMS-based trip logging for Brewboat captains. Scribbler (intake) + Purser (parse/confirm/file/digest) in one Express service.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "main": "bin/server.js",
+  "scripts": {
+    "start": "node bin/server.js",
+    "dev": "node --watch bin/server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "google-auth-library": "^9.14.0",
+    "google-spreadsheet": "^4.1.4",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^7.0.0",
+    "twilio": "^5.3.0"
+  }
+}

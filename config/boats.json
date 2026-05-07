@@ -1,0 +1,9 @@
+{
+  "brewboat": {
+    "official_name": "Brewboat",
+    "hull_id": "REPLACE_ME",
+    "uscg_number": "REPLACE_ME",
+    "capacity": 20,
+    "aliases": ["brew", "the brew", "brewboat", "the boat"]
+  }
+}

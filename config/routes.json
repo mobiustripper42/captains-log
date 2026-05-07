@@ -1,0 +1,10 @@
+{
+  "cuyahoga": {
+    "official_name": "Cuyahoga River",
+    "aliases": ["cuyahoga", "the river", "cuy", "cuyahoga river"]
+  },
+  "lake_erie": {
+    "official_name": "Lake Erie",
+    "aliases": ["lake", "erie", "lake erie", "out on the lake", "the lake"]
+  }
+}
