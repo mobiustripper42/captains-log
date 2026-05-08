@@ -1,9 +1,9 @@
 {
-  "REPLACE_ME": {
+  "8637420543": {
     "name": "Eric",
     "full_name": "Eric Stoffer",
     "role": "owner",
     "active": true,
-    "notes": "Owner / dev test captain. Replace the JSON key with Eric's mobile in E.164 (+1XXXXXXXXXX) before live use. Real captains added as testing expands."
+    "notes": "Owner / dev test captain. Replace the JSON key with your Telegram chat_id (message @userinfobot in Telegram to get it). Real captains added as testing expands."
   }
 }

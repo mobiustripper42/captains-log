@@ -2,10 +2,10 @@
 
 ## What We're Building
 
-SMS-based trip logging for Brewboat captains. Captains text free-form trip
-summaries to a dedicated Twilio toll-free number; the system parses, asks for
-confirmation, and writes a row to the existing Brewboat Google Sheet. Eric
-gets a nightly HTML digest by email.
+Telegram-based trip logging for Brewboat captains. Captains send free-form trip
+summaries to a dedicated Telegram bot; the system parses, asks for confirmation,
+and writes a row to the existing Brewboat Google Sheet. Eric gets a nightly HTML
+digest by email. SMS support is planned as a later concurrent channel (DEC-011).
 
 This repo was extracted from `helm/captainslog/` (helm Phase 3) so Captain's
 Log can ship and operate independently of the rest of the helm fleet (Scrawl,
@@ -14,28 +14,28 @@ Clark, Bilge, Tiller).
 ## Stack
 
 - **Runtime:** Node.js 20+ (ESM, `"type": "module"`)
-- **Framework:** Express (Twilio webhook endpoint) + node-cron (nightly digest)
+- **Framework:** Express (Telegram Bot webhook) + node-cron (nightly digest)
 - **Models:** `claude-haiku-4-5` (parse / confirmation FSM), `claude-sonnet-4-6`
   (nightly digest). Direct Anthropic SDK — see DEC-008.
 - **Storage:** Google Sheets (existing Brewboat form schema, DEC-009) +
-  flat per-captain state JSON (DEC-010) + plaintext raw SMS log per day
+  flat per-captain state JSON (DEC-010) + plaintext raw message log per day
   (`helm:DEC-003`)
-- **SMS:** Twilio toll-free (DEC-004)
+- **Messaging:** Telegram Bot API — no SDK, plain `fetch` (DEC-011)
 - **Email:** Gmail SMTP w/ app password (`helm:DEC-005`)
 - **Host:** bee-grace (dev, via ngrok). VPS production lands in Phase 4.
 
 ## Architecture
 
 ```
-SMS → Twilio → POST /webhook/sms → Scribbler.append() → ack TwiML
+Telegram → POST /webhook/telegram → Scribbler.append() → 200 OK
                                          │
                                          ▼ (in-process, fire-and-forget)
                                     Purser.handle()
                                          │
                                          ├─ parse (Haiku 4.5)
-                                         ├─ outbound SMS confirm (Twilio REST)
+                                         ├─ outbound confirm (Telegram sendMessage)
                                          ├─ on Y → write Sheet row
-                                         └─ persist state to state/<phone>.json
+                                         └─ persist state to state/<chat_id>.json
 
 22:00 ET cron → Purser.digest() → Sonnet 4.6 → email to eric@stoffer.net
 ```
@@ -48,14 +48,14 @@ confirm + file + digest) in one process. See DEC-007.
 ```
 captains-log/
 ├── bin/server.js        # Express + cron entrypoint; supports --version / -v
-├── lib/                 # scribbler, purser (3.3+), parse, sheets, weather, state, sms, digest
+├── lib/                 # scribbler, purser (3.3+), parse, sheets, weather, state, telegram, digest
 ├── config/
-│   ├── captains.json    # phone → captain lookup
+│   ├── captains.json    # chat_id → captain lookup
 │   ├── boats.json       # boat registry + aliases
 │   └── routes.json      # route registry + aliases
-├── raw/YYYY-MM-DD.log         # append-only SMS archive (DEC-003)
+├── raw/YYYY-MM-DD.log         # append-only message archive (DEC-003)
 ├── structured/YYYY-MM-DD.json # parsed entries (pre/post Sheet write)
-├── state/<phone>.json         # per-captain conversation state (DEC-010, gitignored)
+├── state/<chat_id>.json       # per-captain conversation state (DEC-010, gitignored)
 ├── digest/YYYY-MM-DD.html     # nightly digest snapshots
 ├── PROJECT_PLAN.md            # phases, tasks, estimates
 ├── README.md                  # setup + run + prod handoff
@@ -69,7 +69,7 @@ captains-log/
 | `README.md` | Setup, run, prod handoff |
 | `PROJECT_PLAN.md` | Phases, tasks, effort, status |
 | `docs/SPEC.md` | Spec — what we're building, scope, V1 vs later |
-| `docs/DECISIONS.md` | DEC-004/007/008/009/010 — DEC numbering preserved from helm |
+| `docs/DECISIONS.md` | DEC-004/007/008/009/010/011 — DEC numbering preserved from helm |
 | `helm:docs/DECISIONS.md` | Cross-repo decisions still in helm: DEC-003 (log format), DEC-005 (digest delivery), DEC-006 (Scrawl precedent for DEC-007) |
 
 ## Micro Workflow (every task, no exceptions)
@@ -78,8 +78,8 @@ captains-log/
 2. **Plan it** — summarize files to create/edit, commands to run, approach.
    Wait for explicit approval before writing code or running commands.
 3. **Build it** — implement the change
-4. **Test what makes sense** — run the script, send a test SMS via curl with
-   `TWILIO_SKIP_SIGNATURE=1`, hit `/health`, eyeball a Sheet row. No mock
+4. **Test what makes sense** — run the script, send a test message via curl with
+   `TELEGRAM_SKIP_SECRET=1`, hit `/health`, eyeball a Sheet row. No mock
    harness — live exercise on bee-grace via ngrok.
 5. **Close out** — `/kill-this` → `/its-dead`
 
@@ -94,10 +94,10 @@ node bin/server.js --version  # → 0.1.0, exit 0
 # Health
 curl http://localhost:3000/health
 
-# Local webhook test (TWILIO_SKIP_SIGNATURE=1 in .env)
-curl -X POST http://localhost:3000/webhook/sms \
-  -d 'From=+15555550100' \
-  -d 'Body=Trip on Brewboat, 3 trips, 30 pax, Cuyahoga'
+# Local webhook test (TELEGRAM_SKIP_SECRET=1 in .env)
+curl -X POST http://localhost:3000/webhook/telegram \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":123456789},"from":{"username":"estoffer"},"text":"3 trips, 30 pax, Cuyahoga"}}'
 
 # Tail today's raw intake
 tail -f raw/$(date -u +%F).log
@@ -114,11 +114,11 @@ tail -f raw/$(date -u +%F).log
 - Files: `kebab-case`
 - Log files: `YYYY-MM-DD.log` UTC (matches Scrawl, DEC-003); ET day-bucketing
   for cron / digest / Sheet rows
-- Phone numbers: E.164 (`+1XXXXXXXXXX`)
+- Telegram chat IDs: stored as strings in `captains.json`; raw log prefixed `telegram:<id>`
 
 ### Logs
-- Plaintext raw SMS log: `<ISO-timestamp> | <phone> | <captain> | <body>`
-  per line, one file per UTC day
+- Plaintext raw message log: `<ISO-timestamp> | <source>:<sender_id> | <captain> | <body>`
+  per line, one file per UTC day (e.g. `telegram:123456789`)
 - Structured entries: JSON array per ET day in `structured/YYYY-MM-DD.json`
 - Service logs: console + journalctl (in prod). No log library in V1.
 

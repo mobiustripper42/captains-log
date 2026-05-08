@@ -7,7 +7,7 @@
 
 ## What This Is
 
-An SMS-based trip-logging system for Brewboat captains. Captains text free-form trip summaries to a dedicated phone number after each shift. A parsing agent extracts structured fields, asks the captain to confirm, and writes a row to the existing Brewboat Google Sheet that USCG compliance is already built around.
+A Telegram-based trip-logging system for Brewboat captains. Captains send free-form trip summaries to a dedicated Telegram bot after each shift. A parsing agent extracts structured fields, asks the captain to confirm, and writes a row to the existing Brewboat Google Sheet that USCG compliance is already built around. SMS is planned as a later concurrent channel (DEC-011).
 
 Goal: reduce captain friction to as close to zero as possible while producing the same structured log the Google Form produces today.
 
@@ -15,9 +15,9 @@ Goal: reduce captain friction to as close to zero as possible while producing th
 
 ## Design Principles
 
-1. **SMS is the only channel.** Captains will not install an app. Telegram/WhatsApp are off the table.
+1. **Telegram first, SMS later.** Telegram Bot API is free, instant, and avoids toll-free verification delays. SMS added as a concurrent channel when operationally needed (DEC-011). A `source` field on each log entry tracks the origin channel.
 2. **The existing Google Form keeps working.** Captain's Log is additive, not a migration. Captains who prefer the form use the form. Both write to the same Sheet.
-3. **Raw message is always preserved.** Structured row is the "official" log, but raw SMS is the audit trail if anything ever goes wrong.
+3. **Raw message is always preserved.** Structured row is the "official" log, but the raw message log is the audit trail if anything ever goes wrong.
 4. **Two-agent pattern, proven on Scrawl.** One dumb logger captures raw messages. A smart parser extracts structure. Raw is sacred; structured can be rebuilt if the schema changes.
 5. **Compliance bar is low (show USCG the spreadsheet) but we build for more.** Operational insight is a real secondary value: VHF issue patterns, passenger trends, equipment flags.
 6. **Cloud-hosted production.** Beta on grace, production on a VPS with near-100% uptime. Captains texting in the middle of a trip cannot wait for grace to finish compiling something.
@@ -30,12 +30,12 @@ Goal: reduce captain friction to as close to zero as possible while producing th
 
 - **Captain's Log** — the system (generalizable name, kept intentionally brand-neutral)
 - **Brewboat Captain's Log** — the Brewboat-specific deployment
-- **Scribbler** — the dumb SMS logger agent (intake side, equivalent to Stupid)
+- **Scribbler** — the dumb message logger (intake side, equivalent to Stupid)
 - **Purser** — the smart parsing agent (equivalent to Clark)
-- **captains.json** — phone-to-captain lookup roster
+- **captains.json** — chat_id-to-captain lookup roster (Telegram chat_id; SMS phone later)
 - **boats.json** — boat name/alias/capacity registry
 - **routes.json** — valid routes/waterways with aliases
-- **raw log** — append-only SMS archive, captain's verbatim text
+- **raw log** — append-only message archive, captain's verbatim text
 - **structured row** — the Google Sheet row Purser produces
 - **the Sheet** — existing Brewboat compliance spreadsheet (source of truth)
 
@@ -46,16 +46,16 @@ Goal: reduce captain friction to as close to zero as possible while producing th
 ### High level
 
 ```
-Captain texts SMS
+Captain messages bot (Telegram)
      │
      ▼
-Twilio (or alternative) receives
+Telegram Bot API delivers webhook
      │
-     ▼ webhook
+     ▼ POST /webhook/telegram
 Captain's Log gateway (cloud VPS)
      │
-     ├─ Look up sender phone → captain name (captains.json)
-     ├─ Reject if unknown number
+     ├─ Look up sender chat_id → captain name (captains.json)
+     ├─ Reject if unknown chat_id
      │
      ▼
 Scribbler: append raw message to ~/captains-log/raw/YYYY-MM-DD.log
@@ -67,7 +67,7 @@ Auto-reply: "Got it, [Captain]. Parsing now."
 Purser: parse raw text → structured fields
      │
      ▼
-Captain confirmation SMS: "Blue Boat, 4 trips, 49 pax, Cuyahoga, VHF issue. Reply Y to file."
+Captain confirmation: "Blue Boat, 4 trips, 49 pax, Cuyahoga, VHF issue. Reply Y to file."
      │
      ▼
 Captain replies Y / correction

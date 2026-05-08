@@ -104,7 +104,7 @@ Migrated from helm to this repo on 2026-05-07.
 
 ## DEC-010: Captain conversation state lives in flat per-captain JSON files
 
-**Decision:** Purser maintains per-captain conversation state in `state/<phone>.json`, written via atomic rename (`*.tmp` → final). Each file has at most two top-level keys: `open_trip` (a captain's start-of-trip partial awaiting trip-end completion) and `pending_confirmation` (a parsed structured entry awaiting captain "Y" or correction). Either is null when absent. The `state/` directory is gitignored.
+**Decision:** Purser maintains per-captain conversation state in `state/<chat_id>.json` (Telegram; SMS will use `state/<phone>.json` when added), written via atomic rename (`*.tmp` → final). Each file has at most two top-level keys: `open_trip` (a captain's start-of-trip partial awaiting trip-end completion) and `pending_confirmation` (a parsed structured entry awaiting captain "Y" or correction). Either is null when absent. The `state/` directory is gitignored.
 
 **Why:** State must survive process restarts (the systemd unit may bounce mid-conversation), but the volume is trivial — at peak, one row per active captain. Atomic rename handles the burst-message race. Flat JSON matches `helm:DEC-003`'s "flat files until proven insufficient" ethos and stays consistent with how the rest of helm stores data. SQLite is overkill at this scale and adds an operational dependency. In-memory loses on restart. Re-deriving from the raw log doesn't work — the parsed-but-unconfirmed structured object isn't in raw log (only captain words are).
 
@@ -113,3 +113,19 @@ Migrated from helm to this repo on 2026-05-07.
 **Tradeoff:** Corrupted state file → fall back to "treat this message as a fresh entry." Annoying for the captain (one redundant message), not catastrophic. Raw log preserves the audit trail. The fallback is documented in `lib/state.js` and tested.
 
 **Revisit if:** Captain's Log expands to multi-boatyard with concurrent captains where per-file locking becomes a hotspot, or if a "show me my open trips" feature requires cross-captain queries.
+
+---
+
+## DEC-011: Telegram Bot API as the primary messaging channel (SMS deferred)
+
+**Decision:** Captain's Log uses the Telegram Bot API as its V1 messaging channel. SMS (Twilio toll-free, previously DEC-004) is deferred and planned as a later concurrent channel. When both run simultaneously, a `source` field on each structured entry and Sheet row identifies the origin channel.
+
+**Why:** Toll-free verification (required for reliable outbound SMS at scale) is a multi-week process. Telegram Bot API is free, has no registration queue, works immediately, and has zero per-message cost. The bot webhook pattern is simpler than Twilio's signed-request model. For an internal operational channel where all captains have smartphones, requiring the Telegram app is an acceptable constraint.
+
+**Implementation:** `lib/telegram.js` — `fetch`-based, no SDK. Webhook at `POST /webhook/telegram`. Secret token in `X-Telegram-Bot-Api-Secret-Token` header (skippable with `TELEGRAM_SKIP_SECRET=1` for local curl tests). Captain lookup key in `captains.json` is the Telegram `chat_id` (string). Raw log sender field is prefixed `telegram:<chat_id>` for channel traceability.
+
+**Supersedes:** DEC-004 (Twilio toll-free) for V1. DEC-004 provisions remain valid for when SMS is added as a concurrent channel.
+
+**TODO:** Full rationale and alternatives to be pasted in from Eric's decision notes (pending).
+
+**Revisit if:** Telegram penetration among captains is lower than expected, or SMS becomes operationally necessary before the season starts.
