@@ -5,7 +5,7 @@ slug: extract-captainslog-repo-bgjtr
 branch: claude/extract-captainslog-repo-BgjTR
 started: 2026-05-07T10:59:16Z
 ended: 2026-05-08T11:46:00Z
-duration: 1.5
+duration: 24.75
 points: 3
 status: closed
 transcript: /root/.claude/projects/-home-user/d73ea16a-8647-4afb-9088-622f8fe8dd91.jsonl
@@ -76,11 +76,24 @@ this session up on main" in both captains-log and helm.
   Move them later if/when the registration step kicks off.
 - DEC numbering deliberately non-contiguous in `docs/DECISIONS.md`
   (starts at 004) — preserved for cross-repo traceability with helm.
-- Wall-clock duration was ~24h 47m (started 2026-05-07 10:59 UTC, last
-  commit 2026-05-08 11:46 UTC). Recorded as **1.5h** because most of that
-  span was idle between the early SPEC.md write and the user's "did this
-  get pushed to main?" check-in. Adjust if a different number is more
-  honest for velocity.
+- **Duration recorded as wall-clock 24.75h** (started 2026-05-07 10:59 UTC,
+  last work-product commit 2026-05-08 11:46 UTC). A lot of that span was
+  idle — the bulk of active work was the SPEC migration, the DECISIONS
+  extraction, and the main-promotion ops. Per dev preference, sessions
+  log elapsed wall time rather than estimated active work time, so the
+  velocity baseline (3 pts / 24.75h) is informational at best for the
+  first session. Future sessions should make the active/idle split more
+  visible if the baseline matters.
+
+**Orphan branches:** Origin remote rejected branch deletion with `HTTP 403`
+(proxy doesn't permit destructive ref ops). Manual GitHub-UI cleanup
+required for both:
+- `mobiustripper42/captains-log:claude/extract-captainslog-repo-BgjTR`
+  (local branch also wouldn't `-d`-delete because origin tracker is at the
+  pre-merge SHA — safe to force-delete with `git branch -D` once the
+  remote is gone).
+- `mobiustripper42/helm:claude/extract-captainslog-repo-BgjTR` (also
+  redundant; main has the merge commit).
 
 **Code Review:** Skipped — Phase 1.5 was docs-only and landed directly on
 main per explicit user direction; no PR opened. Worth re-running
