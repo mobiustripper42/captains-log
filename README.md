@@ -2,7 +2,7 @@
 
 SMS-based trip logging for Brewboat captains. Captains text free-form trip summaries to a dedicated Twilio number; the system parses, asks for confirmation, and writes a row to the existing Brewboat Google Sheet.
 
-Spec: `helm:docs/captains-log-spec.md` (lives in the helm repo until extracted). Decisions (also in helm): DEC-004 (Twilio toll-free), DEC-007 (single Node service), DEC-008 (Anthropic SDK direct, Haiku/Sonnet split), DEC-009 (Sheets via service account), DEC-010 (flat per-captain state JSON).
+Spec: `docs/SPEC.md`. Decisions: `docs/DECISIONS.md` — DEC-004 (Twilio toll-free), DEC-007 (single Node service), DEC-008 (Anthropic SDK direct, Haiku/Sonnet split), DEC-009 (Sheets via service account), DEC-010 (flat per-captain state JSON). DEC numbering preserved from helm for cross-repo traceability.
 
 ## Architecture
 

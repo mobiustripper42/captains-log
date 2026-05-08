@@ -1,8 +1,8 @@
 # Captain's Log — Project Plan
 
 Standalone repo extracted from `helm/captainslog/` (helm Phase 3.1 + 3.2). Spec
-and decisions still live in helm (`helm:docs/captains-log-spec.md`,
-`helm:docs/DECISIONS.md`) until extracted.
+lives at `docs/SPEC.md` and decisions at `docs/DECISIONS.md` (DEC-004, 007, 008,
+009, 010 — numbering preserved from helm for cross-repo traceability).
 
 ## Estimation Method
 
@@ -19,7 +19,8 @@ repo. Update after the first 5 sessions on `captains-log`.
 
 **Goal:** Captain's Log lives in its own repo, builds, and runs `--version`
 without crashing. Helm-side `captainslog/` is deleted in a matching follow-up.
-**Total:** 6 pts.
+Spec + relevant decisions migrated out of helm.
+**Total:** 9 pts.
 
 | # | Task | Effort | Notes |
 |---|------|--------|-------|
@@ -27,6 +28,7 @@ without crashing. Helm-side `captainslog/` is deleted in a matching follow-up.
 | 1.2 | New `CLAUDE.md` scoped to this repo + new `.gitignore` (no `captainslog/` prefix) + README path scrub (`~/helm/captainslog` → `~/captains-log`) | 2 | Includes the `helm:` doc-reference convention used until spec/DECISIONS extract. |
 | 1.3 | Wire `/health` version + `--version`/`-v` CLI flag (read once from `package.json` at startup) | 2 | Verified: `node bin/server.js --version` → `0.1.0`, exit 0. `/health` returns the same value. |
 | 1.4 | Helm-side `captainslog/` deletion + `.gitignore` cleanup | — | Lands on the matching helm branch. Tracked here for traceability; not counted in this repo's velocity. |
+| 1.5 | Migrate spec + DEC-004/007/008/009/010 from helm → `docs/SPEC.md` + `docs/DECISIONS.md`; strip `helm:` qualifier from README + CLAUDE.md; helm-side leaves one-line MOVED stubs | 3 | DEC numbering preserved for cross-repo traceability. `docs/toll-free-verification-prep.md` stays in helm for now (referenced from spec by name). |
 
 ---
 
@@ -73,12 +75,17 @@ monitoring. Brewboat target: end of May 2026.
 
 ---
 
-## Decisions referenced (live in helm)
+## Decisions referenced
 
-- DEC-003 — Plaintext per-day log format `<ISO-ts> | <field> | …`
+Live in this repo (`docs/DECISIONS.md`):
+
 - DEC-004 — Twilio toll-free (vs A2P 10DLC)
-- DEC-005 — Email digest to `eric@stoffer.net`, Gmail SMTP, inline HTML
 - DEC-007 — Single Node service for Scribbler + Purser
 - DEC-008 — Anthropic SDK direct, Haiku/Sonnet split
 - DEC-009 — Google Sheets via service account (not MCP)
 - DEC-010 — Per-captain state as flat JSON, atomic-rename writes
+
+Live in `mobiustripper42/helm` (`docs/DECISIONS.md`):
+
+- DEC-003 — Plaintext per-day log format `<ISO-ts> | <field> | …` (Scrawl-shared)
+- DEC-005 — Email digest to `eric@stoffer.net`, Gmail SMTP, inline HTML (Clark-shared)

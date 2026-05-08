@@ -16,11 +16,12 @@ Clark, Bilge, Tiller).
 - **Runtime:** Node.js 20+ (ESM, `"type": "module"`)
 - **Framework:** Express (Twilio webhook endpoint) + node-cron (nightly digest)
 - **Models:** `claude-haiku-4-5` (parse / confirmation FSM), `claude-sonnet-4-6`
-  (nightly digest). Direct Anthropic SDK — see helm DEC-008.
+  (nightly digest). Direct Anthropic SDK — see DEC-008.
 - **Storage:** Google Sheets (existing Brewboat form schema, DEC-009) +
-  flat per-captain state JSON (DEC-010) + plaintext raw SMS log per day (DEC-003)
+  flat per-captain state JSON (DEC-010) + plaintext raw SMS log per day
+  (`helm:DEC-003`)
 - **SMS:** Twilio toll-free (DEC-004)
-- **Email:** Gmail SMTP w/ app password (DEC-005)
+- **Email:** Gmail SMTP w/ app password (`helm:DEC-005`)
 - **Host:** bee-grace (dev, via ngrok). VPS production lands in Phase 4.
 
 ## Architecture
@@ -40,7 +41,7 @@ SMS → Twilio → POST /webhook/sms → Scribbler.append() → ack TwiML
 ```
 
 Single Node + Express service runs both Scribbler (intake) and Purser (parse +
-confirm + file + digest) in one process. See helm DEC-007.
+confirm + file + digest) in one process. See DEC-007.
 
 ## Layout
 
@@ -67,8 +68,9 @@ captains-log/
 |------|---------|
 | `README.md` | Setup, run, prod handoff |
 | `PROJECT_PLAN.md` | Phases, tasks, effort, status |
-| `helm:docs/captains-log-spec.md` | Spec — lives in helm until extracted |
-| `helm:docs/DECISIONS.md` | DEC-004/007/008/009/010 — lives in helm until extracted |
+| `docs/SPEC.md` | Spec — what we're building, scope, V1 vs later |
+| `docs/DECISIONS.md` | DEC-004/007/008/009/010 — DEC numbering preserved from helm |
+| `helm:docs/DECISIONS.md` | Cross-repo decisions still in helm: DEC-003 (log format), DEC-005 (digest delivery), DEC-006 (Scrawl precedent for DEC-007) |
 
 ## Micro Workflow (every task, no exceptions)
 
