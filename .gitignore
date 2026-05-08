@@ -24,3 +24,8 @@ yarn-error.log*
 state/*.json
 google-service-account.json
 *-service-account.json
+
+# Log files — live on server filesystem; Sheet is the authoritative record
+raw/
+structured/
+digest/

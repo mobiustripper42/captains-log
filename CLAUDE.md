@@ -124,7 +124,7 @@ tail -f raw/$(date -u +%F).log
 
 ### Storage rules
 - `state/*.json` is **gitignored** — recoverable from raw log + Sheet (DEC-010)
-- `raw/`, `structured/`, `digest/` are **git-versioned** — that's the audit trail
+- `raw/`, `structured/`, `digest/` are **gitignored** — live on server filesystem; Sheet is the authoritative record
 - Service-account JSON files are **gitignored**
 
 ## Session Skills
