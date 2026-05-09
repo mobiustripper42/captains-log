@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import express from 'express';
 import { repoPath } from '../lib/config.js';
-import { handleInbound } from '../lib/scribbler.js';
+import { handle as purserHandle } from '../lib/purser.js';
 import { validateSecretMiddleware, send as tgSend } from '../lib/telegram.js';
 
 const { version: VERSION } = JSON.parse(
@@ -39,15 +39,15 @@ app.post('/webhook/telegram', validateSecretMiddleware(), async (req, res) => {
   }
 
   try {
-    const { reply } = await handleInbound({ chatId, body, source: 'telegram' });
+    const { reply } = await purserHandle({ chatId, body, source: 'telegram' });
     if (reply) await tgSend({ chatId, text: reply });
   } catch (err) {
-    console.error('[server] handleInbound failed:', err);
+    console.error('[server] purserHandle failed:', err);
   }
 });
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[captainslog] listening on :${port} (v${VERSION})`);
-  console.log(`[captainslog] Scribbler wired on /webhook/telegram. Purser (3.3) not yet.`);
+  console.log(`[captainslog] Scribbler + Purser wired on /webhook/telegram.`);
 });
