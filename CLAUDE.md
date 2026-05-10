@@ -65,12 +65,14 @@ captains-log/
 ## Key Docs
 
 | File | Purpose |
-|------|---------|
+|------|----------|
 | `README.md` | Setup, run, prod handoff |
 | `PROJECT_PLAN.md` | Phases, tasks, effort, status |
 | `docs/SPEC.md` | Spec — what we're building, scope, V1 vs later |
 | `docs/DECISIONS.md` | DEC-004/007/008/009/010/011 — DEC numbering preserved from helm |
 | `helm:docs/DECISIONS.md` | Cross-repo decisions still in helm: DEC-003 (log format), DEC-005 (digest delivery), DEC-006 (Scrawl precedent for DEC-007) |
+| `.claude/seeds-version` | Schema version this project was last installed at. Used by `/pull-seeds` to gate template syncs. |
+| `.claude/project-type` | Project type — `webapp` or `tool`. Used by `@sync-config` to gate template files that don't apply to this project's type (DEC-011). Optional. |
 
 ## Micro Workflow (every task, no exceptions)
 
@@ -159,3 +161,34 @@ If a task starts feeling bigger than its estimate:
 
 Occasional dry humor and sarcasm are welcome. Don't overdo it — one good line
 beats three forced ones.
+
+## Verbosity
+
+End-of-turn summaries: one or two sentences. What changed, what's next. Stop there.
+
+Do not recap work I just watched you do. Do not restate the task. Do not explain why an obvious step was obvious. The summary exists so I can re-enter context next session — not so you can demonstrate effort.
+
+If a turn ends with a tidy bullet list followed by three paragraphs of prose, the prose is wrong. Delete it.
+
+Mid-session updates: one sentence per state change. "Found X." "Switching to Y." "Build green." Not a paragraph.
+
+This rule applies double at session end. The session-summary block is the first thing I read next session — make it dense, not voluminous. Five bullets of work and a wall of text means I cannot actually use the summary. Cut the wall.
+
+## Cost and Waste
+
+Never minimize cost. Banned phrasings include but are not limited to:
+- "essentially zero"
+- "negligible"
+- "only a few cents"
+- "just X dollars"
+- "a rounding error"
+- "not a big deal"
+- "don't worry about it"
+
+If you find yourself reaching for one, stop. Any synonym counts. If the function of the phrase is to minimize, it's banned.
+
+It's my money. Willing-to-spend is not the same as willing-to-spend-flippantly. Treat every cost as real, including small ones. Same rule for compute, API calls, third-party services, and dependencies — anything that consumes resources I'm paying for.
+
+Waste of any kind — food thrown out, hours lost, a bad batch, a bricked migration, an over-provisioned instance, a wrong dependency pulled — is a fact, not a problem to console me about. When I tell you something had to be discarded, do not reassure me it's fine. Acknowledge it and move on.
+
+If you catch yourself about to write a reassurance, just don't. The fact is the fact.
