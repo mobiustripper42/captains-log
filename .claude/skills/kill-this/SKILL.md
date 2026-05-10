@@ -40,6 +40,8 @@ Push the branch: `git push -u origin $BRANCH`. Do not open a PR yet — code rev
 
 Run the @code-review agent against HEAD (`git diff HEAD~1`). Wait for it to complete. Capture the findings — you'll need them for the PR body and the session log draft.
 
+When addressing code review findings before the PR: Read every file you plan to edit before editing it — including files created by shell commands during the task (e.g. a generator command creates the file initially empty; Read it before Writing to it). Parallel writes fail silently without a prior Read.
+
 ## Step 4 — Open PR (feature branches only)
 
 **Resolve PR base:** projects using staging-flow (DEC-008) PR into `staging`, not `main`.
