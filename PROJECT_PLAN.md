@@ -1,77 +1,134 @@
 # Captain's Log — Project Plan
 
 Standalone repo extracted from `helm/captainslog/` (helm Phase 3.1 + 3.2). Spec
-lives at `docs/SPEC.md` and decisions at `docs/DECISIONS.md` (DEC-004, 007, 008,
-009, 010 — numbering preserved from helm for cross-repo traceability).
+lives at `docs/SPEC.md` and decisions at `docs/DECISIONS.md`.
+
+**V1 target:** June 1, 2026 beta with real captains.
 
 ## Estimation Method
 
-Fibonacci scale (2, 3, 5, 8, 13). See `helm:docs/VELOCITY_AND_POKER_GUIDE.md`
+Fibonacci scale (1, 2, 3, 5, 8, 13). See `helm:docs/VELOCITY_AND_POKER_GUIDE.md`
 for definitions. Tests (or their equivalent — sending a real test message,
 checking a real Sheet row) are baked into every task estimate.
 
-**Velocity baseline:** Inherited from helm — not yet established for this
-repo. Update after the first 5 sessions on `captains-log`.
+Estimates come from collaborative poker (both Spink and Claude throw a number,
+discuss when they differ, settle together). Solo estimates aren't poker.
+
+**Velocity:** 3 sessions complete, 18 pts shipped (3 + 2 + 13). Sample is too
+small and uneven to project from — treat as informational. Update after the
+next 3 sessions.
 
 ---
 
-## Phase 1: Extract from helm
+## Phase 1: Extract from helm — ✓ shipped
 
 **Goal:** Captain's Log lives in its own repo, builds, and runs `--version`
 without crashing. Helm-side `captainslog/` is deleted in a matching follow-up.
-Spec + relevant decisions migrated out of helm.
+**Total:** 9 pts (shipped).
+
+| # | Task | Effort | Status |
+|---|------|--------|--------|
+| 1.1 | Copy `bin/`, `lib/`, `config/`, `.env.example`, `README.md`, `package.json` from helm verbatim | 2 | ✓ |
+| 1.2 | New `CLAUDE.md` scoped to this repo + new `.gitignore` + README path scrub | 2 | ✓ |
+| 1.3 | Wire `/health` version + `--version`/`-v` CLI flag | 2 | ✓ |
+| 1.4 | Helm-side `captainslog/` deletion + `.gitignore` cleanup | — | ✓ (helm-side) |
+| 1.5 | Migrate spec + DECs from helm → `docs/SPEC.md` + `docs/DECISIONS.md` | 3 | ✓ |
+
+---
+
+## Phase 2: Storage pivot
+
+**Goal:** SQLite is the source of truth for trips, drills, and conversation
+state. Google Sheets becomes an async presentation target written by a nightly
+sync job. `lib/structured-log.js` deleted.
+
+**Why:** Reading the existing Brewboat Sheet schema against 46 CFR Subchapter T
+revealed the Sheet schema doesn't match the regulatory record we need (185.504
+passenger count, 185.506 safety orientation, drill cadence per 185.420/520/524).
+The Sheet is a Google Form artifact. SQLite is free, embedded, and lets us
+atomic-tx confirmation + state changes. Pivot triggered Session 4 before any
+Sheet write was implemented — `filed_to_sheet: false` was hardcoded in
+`lib/purser.js:101`. Decision pending in `DEC-012`.
+
+**Total remaining:** 13 pts (2.1 already shipped).
+
+| # | Task | Effort | Status | Notes |
+|---|------|--------|--------|-------|
+| 2.1 | Parse FSM — Haiku 4.5 → JSON → Y/correction loop | 13 | ✓ | Session 3. Was originally helm 3.3. |
+| 2.2 | SQLite + schema + driver + migrations on startup | 3 | | `lib/db.js` (driver, WAL, tx helper) + `lib/migrate.js` + `lib/migrations/001_init.sql` (7 tables — V1 + V2 baked) + startup hook + tests. Schema designed in planning conversation; implementation is mostly typing. |
+| 2.3 | Trip CRUD + Purser cutover + crew lookup | 5 | | `lib/trips.js` (6 methods), `config/crew.json` + `lib/crew.js` resolver (case-insensitive + alias), `lib/purser.js` cutover (replace `filed_to_sheet: false` block with SQLite tx, resolve first-mate before write), tests, delete `lib/structured-log.js`. |
+| 2.4 | `conversation_state` in SQLite | 2 | | Rewrite `lib/state.js` against `better-sqlite3`, same interface; rewrite `test/state.test.js` against `:memory:`. Existing `state/*.json` ignored on first boot — at most one in-flight captain re-texts. |
+| 2.5 | Async Sheet sync job | 3 | | `lib/sheets.js`: `google-spreadsheet` v4 + service-account auth, reads `trips.findUnsynced()`, appends rows, marks `sheet_synced_at`. Test/prod via `SHEETS_WORKSHEET_TITLE` env var (same file, different tab). |
+
+---
+
+## Phase 3: V1 capture features
+
+**Goal:** Open-trip workflow, weather autofill, drill capture, and `/feedback`.
+The substantive V1 feature work.
+
+**Total:** 22 pts.
+
+| # | Task | Effort | Notes |
+|---|------|--------|-------|
+| 3.1 | Open-trip workflow (split for honesty) | **8** | Total — see 3.1a + 3.1b. Captain texts at trip start with available info, then at end to complete. |
+| 3.1a | Open-trip structural — status transitions, `findActive`, Purser routing, mocked-parse tests | 3 | `open` → `awaiting_confirmation` → `confirmed`. Mock-testable, bounded. |
+| 3.1b | Open-trip prompt tuning — "starting / update / done" sub-intent + multi-open arbitration | 5 | Iteration on real captain text. Not unit-testable in advance. Happens once 3.1a is in and traffic flows on mill-dev. |
+| 3.2 | Weather autofill via Open-Meteo | 3 | No auth, plain `fetch`. Lat/lon per route in `config/routes.json`, fallback to boat home dock. Same-day in-memory cache. Plumbed into `trips.weather_summary`. |
+| 3.3 | Intent classification (trip / drill / unknown) | 3 | Extend Haiku prompt to return `intent` discriminator. Purser dispatch on intent. "I didn't understand" reply for `unknown`. `/feedback` and `/file` slash-commands bypass Haiku entirely. |
+| 3.4 | Drill capture (split for honesty) | **5** | Total — see 3.4a + 3.4b. NL capture only — no reminders / triage in V1. |
+| 3.4a | Drill structural — `lib/drills.js` insert, Purser drill confirm flow, mocked-parse tests | 2 | Reuses `lib/crew.js` resolver from 2.3 for `crew_present_text`. |
+| 3.4b | Drill prompt tuning — `drill_type` extraction + crew name extraction on real captain text | 3 | Same dynamic as 3.1b. |
+| 3.5 | `/feedback` + `/file` slash commands | 3 | `/feedback <observation>` → Haiku drafts a GH issue body → store as `pending`, surface draft. `/file` → file via `gh` CLI/REST → mark `filed`. Spink-only access check. Cancel path. |
+
+---
+
+## Phase 4: Digest + E2E
+
+**Goal:** Nightly digest reaches Spink; live exercise on mill-dev across
+multiple captains and days proves the system before VPS cutover.
+
+**Total:** 6 pts.
+
+| # | Task | Effort | Notes |
+|---|------|--------|-------|
+| 4.1 | Nightly digest to Spink (Sonnet 4.6, 22:00 ET cron) | 3 | `lib/digest.js`: SQLite query for today's confirmed trips + drills, Sonnet prompt, HTML format, Gmail SMTP send (DEC-005 path), snapshot to `digest/YYYY-MM-DD.html`. |
+| 4.2 | E2E live exercise on mill-dev | 3 | 3+ days, 2+ captains (Spink + at least one other), real Sheet sync, real digest. Reactive bug fixes. The "did we build the right thing" gate. |
+
+---
+
+## Phase 5: Production deploy
+
+**Goal:** Move off mill-dev + ngrok onto a real VPS with HTTPS, systemd, and a
+working webhook URL. Brewboat target: June 1, 2026 beta.
+
 **Total:** 9 pts.
 
 | # | Task | Effort | Notes |
 |---|------|--------|-------|
-| 1.1 | Copy `bin/`, `lib/`, `config/`, `.env.example`, `README.md`, `package.json` from helm verbatim | 2 | Scribbler + Twilio webhook + captain lookup + raw-log + signature validation — everything from helm 3.1 + 3.2. Drop the `captainslog/` path prefix. |
-| 1.2 | New `CLAUDE.md` scoped to this repo + new `.gitignore` (no `captainslog/` prefix) + README path scrub (`~/helm/captainslog` → `~/captains-log`) | 2 | Includes the `helm:` doc-reference convention used until spec/DECISIONS extract. |
-| 1.3 | Wire `/health` version + `--version`/`-v` CLI flag (read once from `package.json` at startup) | 2 | Verified: `node bin/server.js --version` → `0.1.0`, exit 0. `/health` returns the same value. |
-| 1.4 | Helm-side `captainslog/` deletion + `.gitignore` cleanup | — | Lands on the matching helm branch. Tracked here for traceability; not counted in this repo's velocity. |
-| 1.5 | Migrate spec + DEC-004/007/008/009/010 from helm → `docs/SPEC.md` + `docs/DECISIONS.md`; strip `helm:` qualifier from README + CLAUDE.md; helm-side leaves one-line MOVED stubs | 3 | DEC numbering preserved for cross-repo traceability. `docs/toll-free-verification-prep.md` stays in helm for now (referenced from spec by name). |
+| 5.1 | VPS verification + Node 24 + deploy dir | 1 | Box already provisioned. Verify state, confirm Node 24 present, prep deploy directory. |
+| 5.2 | TLS + reverse proxy (Caddy, Let's Encrypt) | 3 | DNS A record on Brewboat, Caddyfile entry, automatic cert issuance, Telegram `setWebhook` to the new URL. |
+| 5.3 | systemd unit + env file | 2 | `Restart=on-failure`, env file at `/etc/captainslog/env` (perms 600), `EnvironmentFile=...`, service-account JSON colocated, journald logging via `journalctl -u captainslog`. |
+| 5.4 | Cutover + smoke test | 3 | Swap webhook URL from mill-dev to VPS. Each captain sends one trip + one drill. Verify SQLite write + Sheet sync next tick + digest at 22:00 ET. Roll back to mill-dev if anything fails — keep ngrok warm for 48 h. |
 
 ---
 
-## Phase 2: Purser MVP
+## V1 Totals
 
-**Goal:** Captain texts a trip, Purser parses, asks for confirmation, files to
-the Sheet on Y. Carryover from helm Phase 3.3–3.5.
-**Total (provisional, not re-pokered post-extract):** 21 pts.
+| Phase | Pts | Status |
+|-------|-----|--------|
+| 1 — Extract from helm | 9 | ✓ shipped |
+| 2 — Storage pivot (2.2–2.5 remaining) | 13 | in progress |
+| 3 — V1 capture features | 22 | not started |
+| 4 — Digest + E2E | 6 | not started |
+| 5 — Production deploy | 9 | not started |
+| **V1 total remaining** | **50** | |
 
-| # | Task | Effort | Notes |
-|---|------|--------|-------|
-| 2.1 | Purser parse — Haiku 4.5 → structured JSON → SMS confirmation → Y/correction loop | 13 | Core logic from helm 3.3. Handles partial/ambiguous messages, first mate required, emergency drills checkbox, flexible passenger count. 6 input × state combinations × happy/sad/ambiguous paths — drove the bump from 8 → 13 in helm Session 14. |
-| 2.2 | Google Sheets write — Purser files row to Sheet on captain Y | 5 | helm 3.4. Schema must match existing Brewboat Form columns exactly. Uses GCP service account per DEC-009. |
-| 2.3 | Weather autofill — pull from Open-Meteo by route/location at parse time | 3 | helm 3.5. Captain doesn't provide weather; Purser auto-fills. Open-Meteo is keyless — no secret needed. |
-
----
-
-## Phase 3: Open-trip workflow + nightly digest + E2E
-
-**Goal:** Multi-message trips (start partial → end complete), nightly HTML
-digest email, full live exercise. Carryover from helm Phase 3.6–3.8.
-**Total (provisional):** 11 pts.
-
-| # | Task | Effort | Notes |
-|---|------|--------|-------|
-| 3.1 | Open-trip workflow — start-of-trip partial + end-of-trip completion, state tracking | 5 | helm 3.6. Captain texts at trip start with available info, then at end to complete. Timestamps from SMS; correctable if submitted next day. State persists in `state/<phone>.json` (DEC-010). |
-| 3.2 | Nightly digest — HTML summary email to Eric per DEC-005 | 3 | helm 3.7. Total trips by boat, total pax, flagged issues, unconfirmed entries, parse failures. Same delivery pattern as Clark (Gmail SMTP, inline HTML to `eric@stoffer.net`). 22:00 ET via node-cron. |
-| 3.3 | End-to-end test — full run on bee-grace via ngrok, real Twilio SMS, real Sheet write | 3 | helm 3.8. No mock harness. At least 2 captains, 3+ days. |
-
----
-
-## Phase 4: Production deploy
-
-**Goal:** Move off bee-grace + ngrok onto a real VPS with HTTPS, systemd, and
-monitoring. Brewboat target: end of May 2026.
-**Total (provisional):** 11 pts.
-
-| # | Task | Effort | Notes |
-|---|------|--------|-------|
-| 4.1 | Provision VPS + base setup | 3 | Ubuntu 24.04 LTS, 2 GB RAM minimum. DigitalOcean (US-region webhook latency) vs Hetzner (~half cost, EU). Decision lands when we cut over. Includes Node 24.x, non-root user, ssh hardening. |
-| 4.2 | TLS + reverse proxy | 3 | Real domain on Brewboat, Let's Encrypt via Caddy or nginx. Replaces ngrok in the Twilio webhook URL. |
-| 4.3 | systemd unit + env file | 2 | `Restart=on-failure`, `WorkingDirectory=/srv/captainslog`, `EnvironmentFile=/srv/captainslog/.env`. Service-account JSON colocated. |
-| 4.4 | Cutover + smoke test | 3 | Swap Twilio webhook → prod URL, send test SMS from each registered captain, verify Sheet write + digest email. Roll back to bee-grace if anything fails — keep ngrok warm for 48 h. |
+22 days to June 1 (from 2026-05-10). At ~3 sessions/week, ~9 sessions of
+headroom against ~8 sessions of work at 6 pt/session. **No slack.** If anything
+slips, candidate cuts (worth 9 pt total): 3.5 `/feedback` → V1.5, 2.5 Sheet
+sync → V1.5, 3.2 weather autofill → V1.5. Don't deploy preemptively;
+re-evaluate at the Phase 3 boundary.
 
 ---
 
@@ -79,13 +136,15 @@ monitoring. Brewboat target: end of May 2026.
 
 Live in this repo (`docs/DECISIONS.md`):
 
-- DEC-004 — Twilio toll-free (vs A2P 10DLC)
+- DEC-004 — Twilio toll-free (superseded for V1 by DEC-011; provisions retained for SMS-as-concurrent-channel)
 - DEC-007 — Single Node service for Scribbler + Purser
 - DEC-008 — Anthropic SDK direct, Haiku/Sonnet split
-- DEC-009 — Google Sheets via service account (not MCP)
-- DEC-010 — Per-captain state as flat JSON, atomic-rename writes
+- DEC-009 — Google Sheets via service account (**amendment pending** — async sync, not on Purser hot path)
+- DEC-010 — Per-captain state as flat JSON (**amendment pending** — moves to SQLite alongside trips)
+- DEC-011 — Telegram Bot API as primary V1 channel; SMS deferred
+- DEC-012 — **pending** — SQLite as source of truth for trips, drills, conversation state
 
 Live in `mobiustripper42/helm` (`docs/DECISIONS.md`):
 
-- DEC-003 — Plaintext per-day log format `<ISO-ts> | <field> | …` (Scrawl-shared)
-- DEC-005 — Email digest to `eric@stoffer.net`, Gmail SMTP, inline HTML (Clark-shared)
+- DEC-003 — Plaintext per-day log format (Scrawl-shared)
+- DEC-005 — Email digest via Gmail SMTP, inline HTML (Clark-shared)
