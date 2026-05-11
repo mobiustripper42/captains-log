@@ -3,6 +3,8 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import express from 'express';
 import { repoPath } from '../lib/config.js';
+import { openDb } from '../lib/db.js';
+import { migrate } from '../lib/migrate.js';
 import { handle as purserHandle } from '../lib/purser.js';
 import { validateSecretMiddleware, send as tgSend } from '../lib/telegram.js';
 
@@ -14,6 +16,8 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.stdout.write(`${VERSION}\n`);
   process.exit(0);
 }
+
+migrate(openDb());
 
 const app = express();
 app.set('trust proxy', true);
