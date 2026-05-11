@@ -29,3 +29,6 @@ google-service-account.json
 raw/
 structured/
 digest/
+
+# SQLite — source of truth, lives on server filesystem (DEC-012)
+data/

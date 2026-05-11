@@ -55,7 +55,7 @@ Sheet write was implemented — `filed_to_sheet: false` was hardcoded in
 | # | Task | Effort | Status | Notes |
 |---|------|--------|--------|-------|
 | 2.1 | Parse FSM — Haiku 4.5 → JSON → Y/correction loop | 13 | ✓ | Session 3. Was originally helm 3.3. |
-| 2.2 | SQLite + schema + driver + migrations on startup | 3 | | `lib/db.js` (driver, WAL, tx helper) + `lib/migrate.js` + `lib/migrations/001_init.sql` (7 tables — V1 + V2 baked) + startup hook + tests. Schema designed in planning conversation; implementation is mostly typing. |
+| 2.2 | SQLite + schema + driver + migrations on startup | 3 | ✓ | `lib/db.js` (driver, WAL, tx helper) + `lib/migrate.js` + `lib/migrations/001_init.sql` (8 tables — V1 + V2 baked) + startup hook + tests. |
 | 2.3 | Trip CRUD + Purser cutover + crew lookup | 5 | | `lib/trips.js` (6 methods), `config/crew.json` + `lib/crew.js` resolver (case-insensitive + alias), `lib/purser.js` cutover (replace `filed_to_sheet: false` block with SQLite tx, resolve first-mate before write), tests, delete `lib/structured-log.js`. |
 | 2.4 | `conversation_state` in SQLite | 2 | | Rewrite `lib/state.js` against `better-sqlite3`, same interface; rewrite `test/state.test.js` against `:memory:`. Existing `state/*.json` ignored on first boot — at most one in-flight captain re-texts. |
 | 2.5 | Async Sheet sync job | 3 | | `lib/sheets.js`: `google-spreadsheet` v4 + service-account auth, reads `trips.findUnsynced()`, appends rows, marks `sheet_synced_at`. Test/prod via `SHEETS_WORKSHEET_TITLE` env var (same file, different tab). |
