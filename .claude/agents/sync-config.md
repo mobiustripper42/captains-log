@@ -61,9 +61,10 @@ If `mode` is missing, default to `interactive`. If `mode: auto` is requested but
 
 > `<file>` skipped — project type `<type>`, file applies to `[<allowed types>]` (manifest-gated)
 
-If `.claude/project-type` is absent or holds an unrecognized token, treat the project as **ungated** — diff every pair as before, no gating applied. Add a single one-liner to the Step 6 report so the reviewer knows the gate didn't fire:
+If `.claude/project-type` is absent or holds an unrecognized token, treat the project as **ungated** — diff every pair as before, no gating applied. Add a single one-liner to the Step 6 report so the reviewer knows the gate didn't fire. Use one of these two literal forms (substitute the actual token):
 
-> Project-type gating skipped — `.claude/project-type` is `<missing | unknown:"<token>">`. All template files diffed without filtering.
+- File missing: `Project-type gating skipped — .claude/project-type is missing. All template files diffed without filtering.`
+- Unknown token: `Project-type gating skipped — .claude/project-type is "<token>" (unrecognized; supported: webapp, tool). All template files diffed without filtering.`
 
 Type-gating is a **scoping decision**, not a hunk-level one. It removes file pairs from the diff scope before any classification happens. Hunks within an ungated file are still classified normally per Step 2.
 
