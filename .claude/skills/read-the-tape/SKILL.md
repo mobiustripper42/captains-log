@@ -15,17 +15,22 @@ Read its YAML frontmatter and pull `transcript:`. Use that path directly. If the
 Use it directly.
 
 **No arg — heuristic:**
+
+Compute the project's JSONL directory path via Bash:
+
 ```
-PROJECT_SLUG=$(pwd | tr '/' '-')
-JSONL_DIR="$HOME/.claude/projects/$PROJECT_SLUG"
-(cd "$JSONL_DIR" 2>/dev/null && ls -lt *.jsonl)
+echo "$HOME/.claude/projects/$(pwd | tr '/' '-')"
 ```
 
-The `cd`-and-relative-glob form is deliberate — tree-sitter-bash chokes on `"$VAR"/*.glob`, dropping every invocation into a permission prompt. See its-alive Step 5 for the longer note.
+Capture stdout as `JSONL_DIR`. Then use the **Glob** tool to list the JSONLs:
+- `path: <JSONL_DIR>`
+- `pattern: *.jsonl`
 
-The listing shows **basenames only** (because the `ls` ran from inside `$JSONL_DIR`). Re-prefix `$JSONL_DIR/` onto the chosen filename before passing to Step 2 — the @tape-reader agent expects a full absolute path.
+Glob returns absolute paths sorted by modification time, newest first. No basename re-prefixing needed — the result is already absolute.
 
-Default to the **second most recently modified JSONL** — the current session's JSONL is always the newest (being written live); the one to audit is the previous one. If only one JSONL exists, use it.
+Default to the **second-newest** JSONL (`result[1]`) — the current session's JSONL is always the newest (being written live); the one to audit is the previous one. If only one JSONL exists, use `result[0]`.
+
+The Glob tool is used in place of `ls *.jsonl` because the Bash form trips two harness validator rules (tree-sitter-bash on `"$VAR"/*.glob`, and a newer rule on `cd "$VAR" && ls 2>/dev/null`). See its-alive Step 5 for the full note.
 
 ## Step 2 — Invoke @tape-reader
 

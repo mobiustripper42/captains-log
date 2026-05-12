@@ -31,7 +31,7 @@ The invoking caller passes `mode: interactive` (default) or `mode: auto`.
   - Stage commits with one of these literal message formats (no placeholders — substitute the actual values):
     - **PUSH:** `sync-config: push backport from <repo>` (e.g. `sync-config: push backport from bushel`)
     - **PULL:** `sync-config: pull propagate from seeds` (no `<repo>` — pull always sources from seeds)
-  One commit per source repo per direction. No empty commits.
+    One commit per source repo per direction. No empty commits.
   - Do NOT push, do NOT open a PR. The calling Routine handles git operations.
 
 If `mode` is missing, default to `interactive`. If `mode: auto` is requested but `direction` is also missing or ambiguous, STOP — auto mode requires both parameters resolved upfront.
