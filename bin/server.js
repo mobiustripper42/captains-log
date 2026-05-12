@@ -17,7 +17,8 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.exit(0);
 }
 
-migrate(openDb());
+const db = openDb();
+migrate(db);
 
 const app = express();
 app.set('trust proxy', true);
@@ -43,7 +44,7 @@ app.post('/webhook/telegram', validateSecretMiddleware(), async (req, res) => {
   }
 
   try {
-    const { reply } = await purserHandle({ chatId, body, source: 'telegram' });
+    const { reply } = await purserHandle({ chatId, body, source: 'telegram', db });
     if (reply) await tgSend({ chatId, text: reply });
   } catch (err) {
     console.error('[server] purserHandle failed:', err);
