@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.3] - 2026-05-12
+- PR #7: Phase 2.3 — Trip CRUD, Purser SQLite cutover, crew resolver
+
 ## [0.1.2] - 2026-05-11
 - PR #6: Phase 2.2 — SQLite schema, driver, and startup migration
 
