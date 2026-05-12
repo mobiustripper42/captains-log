@@ -75,16 +75,23 @@ If `sessions/` does not exist: this is the first session under the new format. C
 
 ## Step 5 — Capture the transcript path
 
+Compute the project's JSONL directory path via Bash:
+
 ```
-PROJECT_SLUG=$(pwd | tr '/' '-')
-JSONL_DIR="$HOME/.claude/projects/$PROJECT_SLUG"
-TRANSCRIPT=$(cd "$JSONL_DIR" 2>/dev/null && ls -t *.jsonl 2>/dev/null | head -1)
-[ -n "$TRANSCRIPT" ] && TRANSCRIPT="$JSONL_DIR/$TRANSCRIPT"
+echo "$HOME/.claude/projects/$(pwd | tr '/' '-')"
 ```
 
-The `cd`-and-relative-glob form is deliberate. Tree-sitter-bash (used by Claude Code's static command validator) parses `"$VAR"/*.glob` as a string-concatenated-with-glob node it can't classify, so the harness drops to "needs confirmation" on every session start. Doing the lookup from inside the dir sidesteps the pattern entirely. Don't revert to `ls -t "$JSONL_DIR"/*.jsonl`.
+Capture stdout as `JSONL_DIR`. The command is structurally simple — variable expansion + a single pipe + echo — and passes the harness validator without prompting (no globs, no `cd`, no output redirection).
 
-If no JSONL is found, leave `transcript:` empty in the frontmatter. /read-the-tape will fall back to "latest JSONL" matching at audit time.
+Then use the **Glob** tool to find the latest JSONL:
+- `path: <JSONL_DIR>`
+- `pattern: *.jsonl`
+
+Glob returns absolute paths sorted by modification time, newest first. `TRANSCRIPT = result[0]`.
+
+If the Glob result is empty (no JSONL files in the dir, or the dir doesn't exist), leave `transcript:` empty in the frontmatter — `/read-the-tape` will fall back to "latest JSONL" matching at audit time.
+
+**Why the Glob tool, not Bash:** earlier versions used `ls *.jsonl` directly. Two harness validator rules have flagged that path: tree-sitter-bash can't classify `"$VAR"/*.glob` (drops to confirmation), and a newer rule flags `cd "$VAR" && ls 2>/dev/null` (compound `cd` + output redirection). Each shape was a workaround for the other. Switching to the Glob tool sidesteps every Bash validator entirely — Glob runs through the harness's tool layer, not the shell. The lone Bash call above is small enough that no validator pattern triggers.
 
 ## Step 6 — Compose the session filename and write the open entry
 
