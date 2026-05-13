@@ -264,12 +264,25 @@ a. **Bump patch:**
    ```
    `--no-git-tag-version` is critical — we control tagging in (d) so each release gets exactly one tag.
 
-b. **Append CHANGELOG entry.** If `CHANGELOG.md` doesn't exist at the repo root, create it with `# Changelog\n\n`. If it exists but doesn't start with the literal `# Changelog\n` header (e.g. setext form `Changelog\n=========`, or `# CHANGELOG`, or notes above the header), STOP and surface to the user — do not guess where to insert. Otherwise prepend a new section after the `# Changelog` header (CHANGELOG entries are reverse-chronological, newest at top):
+b. **Append CHANGELOG entry.** If `CHANGELOG.md` doesn't exist at the repo root, create it with `# Changelog\n\n`. Otherwise **Read `CHANGELOG.md` first** (no exceptions — Edit will fail silently otherwise, and we need the exact header bytes to validate). If it exists but doesn't start with the literal `# Changelog\n` header (e.g. setext form `Changelog\n=========`, or `# CHANGELOG`, or notes above the header), STOP and surface to the user — do not guess where to insert.
+
+   **Enumerate every PR merged in this session window** (covers the case where /kill-this opened a PR, it merged, then a follow-up PR opened+merged during the same session — both must appear in this version's CHANGELOG entry):
+   ```
+   STARTED=<session frontmatter `started:` value>
+   gh pr list --author @me --state merged --search "merged:>=$STARTED" --json number,title --limit 20
+   ```
+   Render one bullet per PR returned (newest first as `gh` returns them). If `gh` is unavailable, fall back to a single bullet using the captured `PR_NUMBER` / `PR_TITLE` from Step 5.0.
+
+   **Safety check:** if the resulting PR list does NOT include this session's primary `PR_NUMBER` (from Step 5.0), STOP and ask the user to confirm — the search window may be wrong (clock skew, wrong `started:` timestamp) or the PR may have been merged under a different author. Do not write the CHANGELOG entry until the user resolves this.
+
+   Then prepend a new section after the `# Changelog` header (CHANGELOG entries are reverse-chronological, newest at top):
    ```
    ## [<NEW_VERSION>] - <YYYY-MM-DD>
-   - PR #<PR_NUMBER>: <PR_TITLE>
+   - PR #<N1>: <title1>
+   - PR #<N2>: <title2>
+   ...
    ```
-   Use the `PR_NUMBER` and `PR_TITLE` captured in Step 5.0. If they were not captured (e.g. user supplied STATE manually under Method 3), prompt: "What was the merged PR number and title for the CHANGELOG entry?" Wait for input; never invent.
+   If Step 5.0 didn't capture `PR_NUMBER` / `PR_TITLE` and `gh` enumeration also returns nothing (e.g. user supplied STATE manually under Method 3 and `gh` unavailable), prompt: "What PR(s) should land in the CHANGELOG entry?" Wait for input; never invent.
 
 c. **Stage + commit:**
    ```
@@ -293,17 +306,47 @@ e. **Push:**
 
 f. **Echo:** `Version bumped: v<previous> → v<NEW_VERSION>` (and `tag: v<NEW_VERSION>` if main).
 
+### Step 5.4 — Interactive merge handshake (STATE=OPEN only)
+
+If `STATE != OPEN` at this point: skip this sub-step entirely.
+
+The old behavior here was to print "review_time fills in next /its-alive" and walk away — that left the version bump, CHANGELOG entry, and tag deferred to an unrelated future session and was a frequent source of drift. Replace with an in-session handshake.
+
+Prompt the user verbatim:
+```
+PR #<PR_NUMBER> is OPEN — merge it now to ship version bump + CHANGELOG + tag in this session.
+  - Merge in another window (or here) and reply `merged`
+  - Reply `skip` to defer; you'll run /post-merge manually next session
+  - Reply `abort` to stop /its-dead here without further writes
+```
+
+Wait for the answer. Do not poll, do not assume.
+
+**On `merged`:**
+1. Re-resolve `STATE` using the same Method 1 → Method 2 → Method 3 chain from Step 5.0. Capture fresh `PR_NUMBER` / `PR_TITLE`.
+2. If the re-resolved `STATE != MERGED`: surface the actual state and re-prompt. Never assume — the user may have hit "Close" instead of "Merge", or the merge may have failed CI gates.
+3. If `STATE = MERGED`: run the full Step 5.2 STATE=MERGED block (checkout `$WORKING_BRANCH`, pull, the log commit was already pushed under STATE=OPEN so skip the re-push of `$FILES`; delete the task branch locally + remote), then run Step 5.3 (a–f) in full. The user gets bump + CHANGELOG + tag in this session.
+4. Continue to Step 6 — `STATE` is now `MERGED` so the MERGED summary branch fires.
+
+**On `skip`:**
+- Leave `STATE=OPEN`. Continue to Step 6 — the OPEN summary fires and tells the user to run `/post-merge` next session.
+
+**On `abort`:**
+- Print: `/its-dead aborted at merge handshake. PR #<N> still open. Session file already updated, log commit already pushed. Re-run /its-dead or run /post-merge after merging.` Exit without writing further.
+
 ## Step 6 — Closing summary
 
 The summary must be **conditional on the resolved `STATE`** — never report a flat "Session N closed" when there's still an action waiting. The user reads this line and walks away; if a PR is open they'll forget it sat there.
 
-**STATE=OPEN (most common on protected-main PR-flow projects):**
+**STATE=OPEN (only reached if the user replied `skip` at the Step 5.4 handshake):**
 ```
 Session <N> closed. Wall: <wall_clock>h | Dev: <dev_time>h | Pts: <N>.
-⚠ PR #<X> is OPEN — merge to ship:
-    gh pr merge <X> --merge --delete-branch
-or via GitHub UI. Branch `$BRANCH` lives until merged. Review time fills in next /its-alive.
+⚠ PR #<X> is OPEN — deferred at your request.
+   Merge it:    gh pr merge <X> --merge --delete-branch    (or GitHub UI)
+   Then run:    /post-merge
+That will bump version, write the CHANGELOG entry, tag (if on main), and backfill review_time. Branch `$BRANCH` lives until merged.
 ```
+Do NOT print "fills in next /its-alive" — under DEC-012 the version bump + CHANGELOG no longer ride along on the next session's startup; `/post-merge` is the explicit handoff.
 
 **STATE=MERGED:**
 ```
