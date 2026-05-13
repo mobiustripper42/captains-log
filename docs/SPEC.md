@@ -414,7 +414,7 @@ Parse failures: Eric reviews and files manually if needed.
 
 Key calls made during the first planning session — these override or clarify the spec above:
 
-- **POC in helm first.** Phase 3 of the helm project plan. Runs on bee-grace via Twilio + ngrok. When POC works, break out into its own repo and move to cloud VPS. Cloud deployment is a separate project, not part of the helm POC.
+- **POC in helm first.** Phase 3 of the helm project plan. Runs on bee-grace via Twilio. When POC works, break out into its own repo and move to cloud VPS. Cloud deployment is a separate project, not part of the helm POC.
 - **Captain confirmation is sufficient.** No Eric-review step for filing. Captain says Y → row goes to Sheet. Eric gets the nightly digest.
 - **First mate is required.** Not optional. Purser must ask if missing.
 - **Weather autofill confirmed.** Purser pulls from forecast API at parse time. Captains do not provide weather.
