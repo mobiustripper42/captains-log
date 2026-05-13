@@ -1,56 +1,57 @@
-import { test, after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { openDb } from '../lib/db.js';
+import { migrate } from '../lib/migrate.js';
 import { load, save, clear } from '../lib/state.js';
 
-let dir;
+function freshDb() {
+  const db = openDb(':memory:');
+  migrate(db);
+  return db;
+}
 
-test('setup', async () => {
-  dir = await mkdtemp(join(tmpdir(), 'captainslog-state-'));
+test('load returns {} for missing row', () => {
+  const db = freshDb();
+  assert.deepEqual(load(db, 'nonexistent'), {});
 });
 
-after(async () => {
-  await rm(dir, { recursive: true, force: true });
-});
-
-test('load returns {} for missing file', async () => {
-  const state = await load('nonexistent', dir);
-  assert.deepEqual(state, {});
-});
-
-test('save and load roundtrip', async () => {
+test('save and load roundtrip', () => {
+  const db = freshDb();
   const data = { status: 'awaiting_confirmation', raw_message: 'test', correction_count: 0 };
-  await save('abc', data, dir);
-  const loaded = await load('abc', dir);
-  assert.deepEqual(loaded, data);
+  save(db, 'abc', data);
+  assert.deepEqual(load(db, 'abc'), data);
 });
 
-test('save is atomic — no partial reads', async () => {
-  const data = { status: 'idle', x: 'a'.repeat(10_000) };
-  await Promise.all([
-    save('concurrent', { ...data, seq: 1 }, dir),
-    save('concurrent', { ...data, seq: 2 }, dir),
-    save('concurrent', { ...data, seq: 3 }, dir),
-  ]);
-  const loaded = await load('concurrent', dir);
-  assert.ok([1, 2, 3].includes(loaded.seq), 'should be one of the writes');
-  assert.equal(loaded.x, data.x, 'payload should be intact');
+test('upsert overwrites — one row per chat_id', () => {
+  const db = freshDb();
+  save(db, 'abc', { seq: 1 });
+  save(db, 'abc', { seq: 2 });
+  save(db, 'abc', { seq: 3 });
+  assert.deepEqual(load(db, 'abc'), { seq: 3 });
+  const { n } = db
+    .prepare('SELECT COUNT(*) AS n FROM conversation_state WHERE chat_id = ?')
+    .get('abc');
+  assert.equal(n, 1);
 });
 
-test('clear sets status: idle', async () => {
-  await save('toclean', { status: 'awaiting_confirmation', raw_message: 'x' }, dir);
-  await clear('toclean', dir);
-  const loaded = await load('toclean', dir);
-  assert.equal(loaded.status, 'idle');
+test('clear sets status: idle', () => {
+  const db = freshDb();
+  save(db, 'toclean', { status: 'awaiting_confirmation', raw_message: 'x' });
+  clear(db, 'toclean');
+  assert.deepEqual(load(db, 'toclean'), { status: 'idle' });
 });
 
-test('different chatIds are isolated', async () => {
-  await save('captain-1', { status: 'idle' }, dir);
-  await save('captain-2', { status: 'awaiting_confirmation' }, dir);
-  const s1 = await load('captain-1', dir);
-  const s2 = await load('captain-2', dir);
-  assert.equal(s1.status, 'idle');
-  assert.equal(s2.status, 'awaiting_confirmation');
+test('different chatIds are isolated', () => {
+  const db = freshDb();
+  save(db, 'captain-1', { status: 'idle' });
+  save(db, 'captain-2', { status: 'awaiting_confirmation' });
+  assert.equal(load(db, 'captain-1').status, 'idle');
+  assert.equal(load(db, 'captain-2').status, 'awaiting_confirmation');
+});
+
+test('chatId is coerced to string', () => {
+  const db = freshDb();
+  save(db, 12345, { status: 'idle' });
+  assert.deepEqual(load(db, 12345), { status: 'idle' });
+  assert.deepEqual(load(db, '12345'), { status: 'idle' });
 });
