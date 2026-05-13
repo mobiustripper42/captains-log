@@ -131,7 +131,18 @@ For Method 1 (`gh pr create`): capture the URL from stdout; the `pr_opened_at` i
 For Method 2 (MCP): the response body contains `created_at` — use that for `pr_opened_at`.
 For Method 3 (manual fallback): leave the three fields blank; the user will fill in or let backfill skip.
 
-If `EXISTING_PR_STATE=OPEN` and Step 4.2 was skipped: still write these fields, capturing them from the existing PR's data (Method 1: `gh pr view "$BRANCH" --json number,url,createdAt`; Method 2: the MCP `list_pull_requests` response already includes `created_at` and `html_url`).
+**Multi-PR sessions — preserve history before overwrite:**
+
+Before writing, **Read the session file** and inspect the current `pr_number:` value:
+- If empty / missing: write the three fields as above. Done.
+- If non-empty and equal to the new `$PR_NUMBER` (idempotent re-run): no-op, just confirm.
+- If non-empty and DIFFERENT from the new `$PR_NUMBER`: a previous PR existed (likely opened earlier in this session, merged, and now a follow-up PR is being opened). Do not silently overwrite — that loses the CHANGELOG record.
+  1. Read the existing `pr_history:` list if present, else initialize to `[]`.
+  2. Append an entry preserving the OLD values: `{ number: <old pr_number>, url: <old pr_url>, opened_at: <old pr_opened_at>, merged_at: <old pr_merged_at if present> }`.
+  3. Then overwrite `pr_number` / `pr_url` / `pr_opened_at` with the new PR's values — `/its-dead` Step 1.4 (review_time) and Step 5.0 (state resolution) target the NEWEST PR.
+  4. Surface to the user: "Session already has PR #<old> recorded — moving it into `pr_history` and pointing primary fields at PR #<new>. /its-dead CHANGELOG enumeration will list both PRs for this version."
+
+If `EXISTING_PR_STATE=OPEN` and Step 4.2 was skipped: still write these fields, capturing them from the existing PR's data (Method 1: `gh pr view "$BRANCH" --json number,url,createdAt`; Method 2: the MCP `list_pull_requests` response already includes `created_at` and `html_url`). The same Read-before-write history check applies.
 
 If `EXISTING_PR_STATE=MERGED`: write `pr_number`, `pr_url`, `pr_opened_at`, AND `pr_merged_at` from the PR's `merged_at`. /its-dead Step 1.4 will compute `review_time` directly without backfill.
 
