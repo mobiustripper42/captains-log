@@ -99,7 +99,7 @@ multiple captains and days proves the system before VPS cutover.
 
 ## Phase 5: Production deploy
 
-**Goal:** Move off mill-dev + ngrok onto a real VPS with HTTPS, systemd, and a
+**Goal:** Move off mill-dev onto a real VPS with HTTPS, systemd, and a
 working webhook URL. Brewboat target: June 1, 2026 beta.
 
 **Total:** 9 pts.
@@ -109,7 +109,7 @@ working webhook URL. Brewboat target: June 1, 2026 beta.
 | 5.1 | VPS verification + Node 24 + deploy dir | 1 | Box already provisioned. Verify state, confirm Node 24 present, prep deploy directory. |
 | 5.2 | TLS + reverse proxy (Caddy, Let's Encrypt) | 3 | DNS A record on Brewboat, Caddyfile entry, automatic cert issuance, Telegram `setWebhook` to the new URL. |
 | 5.3 | systemd unit + env file | 2 | `Restart=on-failure`, env file at `/etc/captainslog/env` (perms 600), `EnvironmentFile=...`, service-account JSON colocated, journald logging via `journalctl -u captainslog`. |
-| 5.4 | Cutover + smoke test | 3 | Swap webhook URL from mill-dev to VPS. Each captain sends one trip + one drill. Verify SQLite write + Sheet sync next tick + digest at 22:00 ET. Roll back to mill-dev if anything fails — keep ngrok warm for 48 h. |
+| 5.4 | Cutover + smoke test | 3 | Swap webhook URL from mill-dev to VPS. Each captain sends one trip + one drill. Verify SQLite write + Sheet sync next tick + digest at 22:00 ET. Roll back to mill-dev if anything fails. |
 
 ---
 

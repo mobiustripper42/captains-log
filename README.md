@@ -58,13 +58,7 @@ captainslog/
 
 4. **Edit `config/captains.json`.** Replace the `REPLACE_ME` phone with Eric's mobile in E.164 (`+1XXXXXXXXXX`). Add other captains as testing expands.
 
-5. **Run ngrok** to expose the webhook to Twilio:
-   ```bash
-   ngrok http 3000
-   ```
-   Copy the `https://*.ngrok-free.app` URL into the Twilio number's Messaging webhook (Twilio Console → Phone Numbers → Active → SMS Webhook).
-
-6. **Start the service.**
+5. **Start the service.**
    ```bash
    node bin/server.js
    ```
@@ -114,7 +108,7 @@ Bee-grace is dev. Production will be a VPS. The handoff is:
 3. Re-run setup steps 2–4 above on the VPS:
    - New `.env` with prod values (re-issue Anthropic key if dev key is leaked, swap Twilio webhook to the prod URL, regenerate Gmail app password if rotated).
    - Re-issue or copy the Google service-account JSON. The sheet ID stays the same — just re-share with the service-account email if you minted a new one.
-   - Replace ngrok with a real domain + HTTPS via Let's Encrypt + nginx (or Caddy).
+   - Set up a real domain + HTTPS via Let's Encrypt + nginx (or Caddy).
 4. Update the Twilio number's Messaging webhook to the prod HTTPS URL.
 5. Set up systemd: `Restart=on-failure`, `WorkingDirectory=/srv/captainslog`, `EnvironmentFile=/srv/captainslog/.env`. (Unit file lands in 3.8 once we're closer to production.)
 6. Sanity check: `curl https://<prod-domain>/health` → 200, send one test SMS, watch journalctl.
