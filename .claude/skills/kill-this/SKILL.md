@@ -40,6 +40,8 @@ Push the branch: `git push -u origin $BRANCH`. Do not open a PR yet — code rev
 
 Run the @code-review agent against HEAD (`git diff HEAD~1`). Wait for it to complete. Capture the findings — you'll need them for the PR body and the session log draft.
 
+When addressing code review findings before the PR: Read every file you plan to edit before editing it — including files created by shell commands during the task (e.g. a generator command creates the file initially empty; Read it before Writing to it). Parallel writes fail silently without a prior Read.
+
 ## Step 4 — Open PR (feature branches only)
 
 **Resolve PR base:** projects using staging-flow (DEC-008) PR into `staging`, not `main`.
@@ -114,6 +116,24 @@ On success (exit 0, URL printed): capture URL. Done.
 **Method 3 — STOP:** if both methods fail, push has already succeeded so the branch is on the remote — surface to the user: "PR creation failed via `gh` and MCP. Branch `$BRANCH` is pushed. Open manually at the GitHub branch URL and paste the body below: ..." then print the body. Note the missing PR in the draft log's Context. Do not pretend the PR exists.
 
 Capture the returned PR URL. Surface it in your response and note it in the draft session log entry's `Context` section.
+
+### Step 4.3 — Record PR anchors in session frontmatter
+
+Write three fields to the open session file's YAML frontmatter so `/its-dead` Step 1.4 and the next `/its-alive` review_time backfill can find them:
+
+```
+pr_number: <PR_NUMBER>
+pr_url: <PR_URL>
+pr_opened_at: <ISO 8601 timestamp of this PR creation>
+```
+
+For Method 1 (`gh pr create`): capture the URL from stdout; the `pr_opened_at` is "right now" — use `date -u +%Y-%m-%dT%H:%M:%SZ`.
+For Method 2 (MCP): the response body contains `created_at` — use that for `pr_opened_at`.
+For Method 3 (manual fallback): leave the three fields blank; the user will fill in or let backfill skip.
+
+If `EXISTING_PR_STATE=OPEN` and Step 4.2 was skipped: still write these fields, capturing them from the existing PR's data (Method 1: `gh pr view "$BRANCH" --json number,url,createdAt`; Method 2: the MCP `list_pull_requests` response already includes `created_at` and `html_url`).
+
+If `EXISTING_PR_STATE=MERGED`: write `pr_number`, `pr_url`, `pr_opened_at`, AND `pr_merged_at` from the PR's `merged_at`. /its-dead Step 1.4 will compute `review_time` directly without backfill.
 
 ## Step 5 — Draft session log entry
 

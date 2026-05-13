@@ -41,6 +41,8 @@ If `mode` is missing, default to `interactive`. If `mode: auto` is requested but
 - `<seeds>/dev/` — template for dev projects (Next.js + Supabase shape)
 - `<seeds>/domain/` — template for non-dev domains (bread, tomatoes, ops, etc.)
 - `<seeds>/seeds-version` — the latest published schema version (the calling skill should have already gated on compatibility before invoking you, but verify)
+- `<seeds>/.claude/type-manifest.yaml` — project-type gating manifest (DEC-011). Lists the small set of `dev/claude/` files that only apply to certain project types (e.g. `agents/ui-reviewer.md` only applies to `webapp`-type projects)
+- The active project's `.claude/project-type` — single-line file naming the project's type (`webapp` or `tool`). Optional; if absent, no type-gating is applied
 - The active project's `.claude/agents/`, `.claude/skills/`, `CLAUDE.md`, and `docs/` — the live versions
 - `<seeds>/dev/claude/skills/push-seeds/SKILL.md` and `<seeds>/dev/claude/skills/pull-seeds/SKILL.md` — the invocation wrappers that call you
 
@@ -55,7 +57,18 @@ If `mode` is missing, default to `interactive`. If `mode: auto` is requested but
 
 ### Step 1 — Diff
 
-For each relevant file pair, diff project-live against seeds-template:
+**Project-type gating (DEC-011).** Before scoping the diff, read `<project>/.claude/project-type` (single-line file: `webapp`, `tool`, or other supported tokens). Then read `<seeds>/.claude/type-manifest.yaml` for the gating rules. For every file pair below, check whether the template-side path appears in the manifest. If it does and the project's type is not in the manifest's allowed list for that path, **drop the pair from the diff scope** and record one entry for the Step 6 report:
+
+> `<file>` skipped — project type `<type>`, file applies to `[<allowed types>]` (manifest-gated)
+
+If `.claude/project-type` is absent or holds an unrecognized token, treat the project as **ungated** — diff every pair as before, no gating applied. Add a single one-liner to the Step 6 report so the reviewer knows the gate didn't fire. Use one of these two literal forms (substitute the actual token):
+
+- File missing: `Project-type gating skipped — .claude/project-type is missing. All template files diffed without filtering.`
+- Unknown token: `Project-type gating skipped — .claude/project-type is "<token>" (unrecognized; supported: webapp, tool). All template files diffed without filtering.`
+
+Type-gating is a **scoping decision**, not a hunk-level one. It removes file pairs from the diff scope before any classification happens. Hunks within an ungated file are still classified normally per Step 2.
+
+For each pair that survived the gate, diff project-live against seeds-template:
 
 - Skills: `.claude/skills/<name>/SKILL.md` vs `<seeds>/dev/claude/skills/<name>/SKILL.md`
 - Agents: `.claude/agents/<name>.md` vs `<seeds>/dev/claude/agents/<name>.md`
@@ -64,7 +77,7 @@ For each relevant file pair, diff project-live against seeds-template:
 
 The diff itself is direction-symmetric — same hunks, same classification rubric. Direction only matters at apply time (Step 4).
 
-**Never blanket-skip a file** that has a corresponding template, even if the project's copy is heavily customized. Hunk-classify the diff. Files like `docs/BRAND.md`, `docs/PROJECT_PLAN.md`, `docs/RETROSPECTIVES.md`, and `CLAUDE.md` carry both project substitutions AND structural template content; treating them as 100%-project-specific blanks out the structural channel and was the failure mode of the 2026-05-08 first run.
+**Never blanket-skip a file** that has a corresponding template, even if the project's copy is heavily customized. Hunk-classify the diff. Files like `docs/BRAND.md`, `docs/PROJECT_PLAN.md`, `docs/RETROSPECTIVES.md`, and `CLAUDE.md` carry both project substitutions AND structural template content; treating them as 100%-project-specific blanks out the structural channel and was the failure mode of the 2026-05-08 first run. The only gate that drops a whole file is the project-type manifest above — and that gate is explicit.
 
 ### Step 2 — Classify each diff hunk
 
@@ -108,7 +121,15 @@ Output a table:
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
 
-`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`, `[placeholder] filled with "We write in second person..."`). `Provenance` is one of `Project-only` / `Template-only` / `Both-modified`. `Classification` is `Skip` / `Backport` / `Flag`. `Action` is what you actually did/will do (`Skipped`, `Forward-ported`, `Backported`, `Flagged in PR body`).
+`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`, `[placeholder] filled with "We write in second person..."`). `Provenance` is one of `Project-only` / `Template-only` / `Both-modified` / `Type-gated`. `Classification` is `Skip` / `Backport` / `Flag`. `Action` is what you actually did/will do (`Skipped`, `Forward-ported`, `Backported`, `Flagged in PR body`).
+
+For files dropped from scope by the Step 1 type gate, emit one row per gated file:
+
+| File | Hunk | Provenance | Classification | Action |
+|------|------|------------|----------------|--------|
+| `agents/ui-reviewer.md` | (file) | Type-gated | Skip | Skipped — project type `tool`, file applies to `[webapp]` |
+
+Type-gated rows always carry `Hunk: (file)` (it's a whole-file gate, not a hunk classification) and `Action` includes both the project's type and the manifest's allowed list so the reviewer can verify the gate fired correctly.
 
 In `mode: interactive`:
 - For each **backport** (push) / **forward-port** (pull), show the diff hunk and ask: "Apply? (y/n)"

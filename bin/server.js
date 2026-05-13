@@ -3,6 +3,8 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import express from 'express';
 import { repoPath } from '../lib/config.js';
+import { openDb } from '../lib/db.js';
+import { migrate } from '../lib/migrate.js';
 import { handle as purserHandle } from '../lib/purser.js';
 import { validateSecretMiddleware, send as tgSend } from '../lib/telegram.js';
 
@@ -14,6 +16,9 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.stdout.write(`${VERSION}\n`);
   process.exit(0);
 }
+
+const db = openDb();
+migrate(db);
 
 const app = express();
 app.set('trust proxy', true);
@@ -39,7 +44,7 @@ app.post('/webhook/telegram', validateSecretMiddleware(), async (req, res) => {
   }
 
   try {
-    const { reply } = await purserHandle({ chatId, body, source: 'telegram' });
+    const { reply } = await purserHandle({ chatId, body, source: 'telegram', db });
     if (reply) await tgSend({ chatId, text: reply });
   } catch (err) {
     console.error('[server] purserHandle failed:', err);
