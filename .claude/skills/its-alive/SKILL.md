@@ -31,6 +31,37 @@ Run `git fetch origin` to refresh remote state. Capture `BRANCH=$(git branch --s
 - `main`: `git pull --ff-only origin main`. On divergence, show `git log --oneline origin/main..HEAD` and `git log --oneline HEAD..origin/main`, then ask: **"(a) rebase, (b) reset to origin/main, (c) abort?"** Wait for the choice.
 - Anything else (manual non-standard branch): if `git status --porcelain` is dirty, stop and ask the user to commit/stash. If clean, ask the user **"Stay on `$BRANCH` or switch to `main`?"** Wait for the choice — don't auto-switch.
 
+### Step 0.5 — Orphan branch + unmerged PR scan
+
+Before stamping time, check for leftover work from prior sessions. The CC platform creates a new `claude/*` branch per session, so previous sessions' branches and PRs stay alive on the remote until explicitly merged or deleted. This is the single biggest source of "I thought that was closed" surprises.
+
+**Resolve `WORKING_BRANCH`** (same logic as `/its-dead` Step 5):
+```
+git show-ref --verify --quiet refs/remotes/origin/staging && WORKING_BRANCH=staging || WORKING_BRANCH=main
+```
+
+**Scan A — remote `claude/*` branches with commits not on `$WORKING_BRANCH`:**
+```
+git for-each-ref refs/remotes/origin/claude/ --format='%(refname:short)'
+```
+For each `origin/claude/<slug>` (other than the current branch): `git log --oneline origin/$WORKING_BRANCH..<ref>`. If non-empty, it's a candidate.
+
+**Scan B — open PRs from prior sessions:**
+- `gh pr list --state open --base "$WORKING_BRANCH" --json number,title,headRefName,createdAt,updatedAt --limit 20` — or MCP `mcp__github__list_pull_requests` if `gh` is unavailable.
+
+**Cross-reference** the two scans. Three categories surface:
+| Category | Definition | Action |
+|----------|------------|--------|
+| Open-with-PR | Branch has unmerged commits AND an open PR | Tell the user; don't touch. They're "in flight." |
+| Orphan-without-PR | Branch has unmerged commits AND no open PR | **Real problem** — work would silently disappear. Surface with prompt: "(a) open a PR now, (b) cherry-pick onto current branch, (c) delete (commits will be lost)?" Wait. |
+| Stale-no-commits | Branch exists on remote but no commits ahead of `$WORKING_BRANCH` | Quietly suggest `git push origin --delete <ref>` if more than one such ref exists. |
+
+Also surface any open PR whose `createdAt` is more than 24h old — likely forgotten merges. List with: "⚠ PR #N (`<title>`) has been open since `<createdAt>`. Merge with `gh pr merge N --merge --delete-branch` or close if abandoned."
+
+This step is **advisory only** for in-flight work and **gating** for orphans-without-PR. Don't proceed past it without the user's explicit choice when an orphan is found.
+
+If `gh` and MCP are both unavailable, skip this step silently — log a note in Context. The user can run `/restart-this` or rerun `/its-alive` once those tools come back.
+
 ## Step 1 — Stamp the time
 
 ```
@@ -109,9 +140,15 @@ slug: <SLUG>
 branch: <BRANCH>
 started: <START_UTC>
 ended:
+wall_clock:
+dev_time:
+review_time:
 duration:
 points:
 status: open
+pr_number:
+pr_url:
+pr_opened_at:
 transcript: <TRANSCRIPT>
 ---
 
