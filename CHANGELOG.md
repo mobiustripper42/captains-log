@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.4] - 2026-05-13
+- PR #12: Phase 2.4 — `conversation_state` in SQLite (filesystem JSON store removed)
+- PR #11: Docs — drop ngrok references
+
 ## [0.1.3] - 2026-05-12
 - PR #7: Phase 2.3 — Trip CRUD, Purser SQLite cutover, crew resolver
 
