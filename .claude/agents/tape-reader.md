@@ -1,6 +1,6 @@
 ---
 name: tape-reader
-description: Analyzes session JSONL transcripts for workflow anti-patterns and proposes targeted improvements to skill and agent files. Invoked by /read-the-tape. Covers known patterns P1–P11 and surfaces new candidates to grow its own checklist.
+description: Analyzes session JSONL transcripts for workflow anti-patterns and proposes targeted improvements to skill and agent files. Invoked by /read-the-tape. Covers known patterns P1–P15 and surfaces new candidates to grow its own checklist.
 tools: Read, Edit, Write, Bash, Glob, Grep
 ---
 
@@ -129,9 +129,41 @@ For each pattern, note: **occurred / not found / inconclusive**.
 
 ---
 
+### P12 — /its-dead invoked twice in the same session
+**Signal:** Two /its-dead invocations in same session within 90-120s
+**Why it hurts:** Second run finds no [open] entry, produces corrupt log
+**Fix:** Guard check at top of its-dead Step 0
+**Files:** `.claude/skills/its-dead/SKILL.md`
+
+---
+
+### P13 — Bash cat used instead of Read tool
+**Signal:** `cat <file>` or `cat <file> | head -N` to read source files
+**Why it hurts:** Loses line-numbered format; unbounded cat is P1 violation
+**Fix:** Use Read tool with offset/limit
+**Files:** The calling skill's SKILL.md
+
+---
+
+### P14 — Repeated reads of same error-context file
+**Signal:** Same `test-results/*/error-context.md` read 2+ times
+**Why it hurts:** Multiple round trips to recover info available in first read
+**Fix:** `grep -A 50 "Error details" <error-context-file>`
+**Files:** Not a skill file — note in findings report
+
+---
+
+### P15 — Test retries masking shared-state race conditions
+**Signal:** `{ retries: N }` on specific test with race condition comment
+**Why it hurts:** Papers over isolation problem; gets worse as suite grows
+**Fix:** Namespace shared resource by test ID, proper isolation
+**Files:** Not a skill file — flag in findings report
+
+---
+
 ## Step 3 — Look for new patterns
 
-Beyond P1–P11, scan for friction signals not yet on the list:
+Beyond P1–P15, scan for friction signals not yet on the list:
 
 - Any tool call that failed and was retried 2+ times
 - The same file being read multiple times in the same session
@@ -194,7 +226,7 @@ If nothing was approved, skip the PR entirely. Report findings only.
 If Step 3 found new patterns, list them clearly:
 
 > **Candidate patterns for @tape-reader:**
-> - CX: [description] — suggest adding as P12
+> - CX: [description] — suggest adding as P16
 >
 > To add: edit `.claude/agents/tape-reader.md` and add to the known-patterns section. Then `/push-seeds` to backport.
 
