@@ -1,14 +1,16 @@
 ---
 name: retro
-description: Phase-end retrospective. Closes out the current phase by marking PROJECT_PLAN.md tasks `[x]`, reconciling drift (issues added mid-phase), computing phase velocity, prompting for retro notes, and appending to RETROSPECTIVES.md. Optionally chains into /start-phase for the next phase.
-tools: Read, Edit, Write, Bash, Glob, Grep
+description: Phase-end retrospective. Closes the current phase. Under DEC-013, retro is also where per-session time math runs — for every session in the phase window, it computes wall_clock / dev_time / review_time from `started`, `ended`, the transcript JSONL, and GitHub PR timestamps. Aggregates to phase velocity. Marks PROJECT_PLAN.md `[x]`, reconciles drift, writes RETROSPECTIVES.md, runs version bumps (patch per merged PR + minor at phase close on dev projects), prompts retro notes. Optionally chains into `/start-phase`.
+tools: Read, Edit, Write, Bash, Glob, Grep, Agent
 ---
 
-You are running the phase-end retrospective. The phase boundary is now — work for this phase is complete (or you've decided to call it done and move scope).
+You are running the phase-end retrospective. Work for this phase is complete (or you've decided to call it done and move scope).
+
+Under DEC-013, this skill **owns all per-session time math** that used to live in `/its-dead` and **all version bumps** that used to live in `/its-dead` (patch per merge) and `/retro` (minor at close). Session files are atomic event logs; retro is where they get turned into numbers.
 
 ## Step 0 — Identify the current phase
 
-Find phase N as the **lowest phase number with any open issues** OR (if all closed) the highest phase that has issue links in PROJECT_PLAN.md but no `[x]` marks yet.
+Find phase N as the **lowest phase number with any open issues** OR (if all closed) the highest phase with `[ ]` rows in PROJECT_PLAN.md but no `[x]` marks yet.
 
 ```
 for phase in 0 1 2 3 4 5 6 7 8 9; do
@@ -17,109 +19,167 @@ for phase in 0 1 2 3 4 5 6 7 8 9; do
 done
 ```
 
-Confirm with the user: "Run retro for Phase **N**?"
+Confirm: "Run retro for Phase **N**?" Wait.
 
-## Step 1 — Verify all phase issues are accounted for
+## Step 1 — Account for all phase issues
 
 ```
 gh issue list --label "phase:<N>" --state all --json number,title,state,labels --limit 100
 ```
 
-Surface any open issues. Ask the user: "Phase N has open issues: #X, #Y. Move them to next phase, leave open, or close as won't-do? (per-issue choice or 'all to next')"
-
-For each open issue:
-- **Move to next phase:** swap the `phase:N` label for `phase:N+1`. The PROJECT_PLAN.md row's annotation will note the move at retro write.
-- **Leave open:** they stay open, phase still ends. Record them in the retro notes.
+For each open issue, ask the user: "Move to next phase, leave open, or close as won't-do?"
+- **Move:** swap `phase:N` → `phase:N+1`.
+- **Leave open:** record in retro.
 - **Close as won't-do:** `gh issue close <N> --reason "not planned" --comment "Closed at Phase N retro — descoped."`
 
-## Step 2 — Compute phase metrics
+## Step 2 — Per-session time math (DEC-013 — moved from `/its-dead`)
 
-**Duration:** first issue creation timestamp → last issue close timestamp.
+Find every session file in the phase window. Phase window = first issue's `createdAt` → last issue's `closedAt` (use `gh issue list --label "phase:<N>" --state all --json createdAt,closedAt`).
+
+For each session file in `.sessions-worktree/sessions/` whose `started:` falls within the phase window (or `started:` < phase_start AND `ended:` is within — span sessions count too):
+
+### Step 2.1 — Read frontmatter
+
+Parse `started`, `ended`, `pr_numbers`, `points`, `transcript` from the session file's YAML frontmatter. Required: `started`, `ended`. If `ended` is empty (session was abandoned or unclosed), skip with a note in the retro.
+
+### Step 2.2 — wall_clock
+
+`wall_clock = (ended − started) in hours, rounded to nearest 0.083h`. Always defined.
+
+### Step 2.3 — Break inference from transcript
+
+If `transcript` is set and the file is readable:
+1. Read the JSONL line by line; parse each line's `timestamp` field.
+2. Sort timestamps ascending.
+3. Walk pairwise. Any gap > 15 min counts as idle.
+4. Sum idle minutes within `[started, ended]` to get `total_breaks_hours`.
+
+If the transcript is unreadable or missing, set `total_breaks_hours = 0` and note `inference: transcript-unavailable` in the per-session line of the retro.
+
+### Step 2.4 — PR timestamps from GitHub
+
+For each PR number in `pr_numbers`:
 ```
-gh issue list --label "phase:<N>" --state all --json createdAt,closedAt --limit 100
+gh pr view <N> --json number,createdAt,mergedAt,state
 ```
-Take min(createdAt) and max(closedAt). Subtract.
+Capture `createdAt` (= `pr_opened_at`) and `mergedAt` (= `pr_merged_at`, may be null if still open or closed-without-merge).
 
-**Points:** sum of `points:X` labels on closed issues.
+If `gh` is unavailable, try `mcp__github__pull_request_read` with `owner`, `repo`, `pullNumber`.
 
-**Sessions touched:** glob `sessions/*.md`, count those whose `started:` falls within the phase window.
+If both unavailable: skip PR-derived math for this session; note `inference: github-unavailable`. The user can rerun retro later.
 
-**Velocity:** `total_hours_worked / total_points_completed`.
+### Step 2.5 — dev_time and review_time
 
-For total hours worked: sum `duration:` from session files in the phase window. (Sessions span phases sometimes; that's OK — count any session whose work touched a phase issue.)
+The session has a dev phase (work happens, possibly across multiple tasks) and review phases (user reviews each PR and merges). Compute:
 
-## Step 3 — Update PROJECT_PLAN.md
+**`dev_time`** = `(min(all pr.createdAt) − started) − breaks_in_dev_window`
+- Window: `started` to the earliest PR opening of the session. (If no PRs, dev window = `started` to `ended`.)
+- Breaks: count only break gaps whose start timestamp falls inside this window.
+
+**`review_time`** = sum across all PRs of `(merged_at − created_at) − overlap_with_dev` for each merged PR, capped at `ended − earliest_pr.created_at` if user merged before `/its-dead`.
+- If a PR was opened mid-session and merged after `/its-dead`, count only the in-session portion (up to `ended`).
+- If a PR was opened and merged in-session, count the full open→merged span.
+- Subtract any break gaps inside the review window.
+
+Edge cases:
+- No PRs at all: `dev_time = wall_clock - breaks`, `review_time = 0`.
+- All PRs merged after `/its-dead`: `review_time = max(0, ended - earliest_pr.created_at - breaks_in_review_window)`.
+- A PR was closed without merging: do not count it in `review_time`.
+
+Round all times to nearest 0.083h (5 min). If any number comes out negative due to clock skew, clamp to 0.
+
+### Step 2.6 — Per-session line for the retro
+
+Build one row per session for the RETROSPECTIVES.md table:
+
+```
+| Session N | YYYY-MM-DD | wall_clock | dev_time | review_time | breaks | points | PRs |
+```
+
+Hold these numbers — they get summed in Step 3.
+
+## Step 3 — Phase metrics
+
+Sum the per-session numbers:
+- `phase_wall_clock` = Σ wall_clock
+- `phase_dev_time` = Σ dev_time
+- `phase_review_time` = Σ review_time
+- `phase_breaks` = Σ breaks
+- `phase_points` = Σ points (also confirm against `points:N` label sum from closed issues — flag mismatch)
+- `phase_sessions` = count
+
+Three velocities:
+- `wall_clock / point` — total elapsed including all idle and review
+- `dev_time / point` — active dev only (the headline number for forecasting)
+- `review_time / point` — review-and-iterate cost per point
+
+## Step 4 — Update PROJECT_PLAN.md
 
 Mark all closed phase tasks `[x]`. For each row:
 ```
 | 1.1 | Task description | 3 | [x] [#42](url) |
 ```
 
-**Reconcile drift:** check for issues with `phase:<N>` labels that don't appear in the PROJECT_PLAN.md phase table (added mid-phase). For each:
-- Add a row to the phase, with status `[x] [#N](url)` and an inline annotation: `Added during P<N> retro — emerged from #X` or similar context.
+Reconcile drift: issues with `phase:<N>` labels that don't appear in PROJECT_PLAN.md (added mid-phase). Add rows with status `[x] [#N](url)` and inline note `Added during P<N> retro`.
 
-**Update the velocity table** at the top of PROJECT_PLAN.md:
+Update the velocity table at the top:
 ```
-| Sessions | Points completed | Hours | Hours/point |
-|---|---|---|---|
-| <count for phase N> | <points> | <hours> | <hrs/pt> |
+| Phase | Sessions | Points | Wall (h) | Dev (h) | Review (h) | hrs/pt (dev) |
+|-------|----------|--------|----------|---------|------------|------------------|
+| N     | <count>  | <pts>  | <wall>   | <dev>   | <review>   | <hrs_pt_dev>     |
 ```
 
-Append a row per phase as they complete.
+Append one row per phase as they complete.
 
-## Step 4 — Prompt retro notes
+## Step 5 — Prompt retro notes
 
-Ask the user three questions, one at a time:
+Ask three questions, one at a time, capture verbatim:
+1. **What worked?**
+2. **What didn't?**
+3. **What changes for next phase?**
 
-1. **What worked?** (kept practices)
-2. **What didn't?** (friction, surprises, scope creep)
-3. **What changes for next phase?** (specific, actionable)
+## Step 5.5 — PM retro commentary
 
-Capture verbatim — do not summarize or rewrite.
+Invoke `@pm` (Sonnet) with the full retro context: phase number + name, metrics from Step 3, user's verbatim answers, the per-session table from Step 2.6, closed-issue list with descoped/moved notes, and `docs/RETROSPECTIVES.md` for cross-phase comparison. Let `@pm` read the session files themselves for in-the-trenches detail.
 
-## Step 4.5 — PM retro commentary
+`@pm` returns 3–5 short paragraphs on pace, scope, patterns, a reaction to the user's answers (not a paraphrase), and a forward-looking note.
 
-The user's answers go in cold storage in Step 5; before that, give them something to react to from `@pm`. The agent has visibility you don't bring fresh to the retro — pace vs prior phases, session-file gotchas, scope-drift it can spot.
-
-Invoke `@pm` (Sonnet) with the full retro context. Pass:
-
-- **Phase number + name** (from Step 0)
-- **Metrics** (from Step 2): duration in hours, points completed vs planned, velocity (hrs/pt), sessions-touched count
-- **User's verbatim answers** (from Step 4): all three
-- **Session file paths** in the phase window (let `@pm` read them itself for the in-the-trenches detail)
-- **Closed issues** (from Step 1's listing): numbers, titles, points labels, any descoped/moved
-- **Reference:** `docs/RETROSPECTIVES.md` for cross-phase comparison
-
-`@pm`'s "Phase retro commentary" responsibility (see `pm.md`) covers the rest — 3–5 short paragraphs on pace, scope, patterns, a reaction to the user's answers (not a paraphrase), and a forward-looking note. Tone is allowed to be dry per the project's `CLAUDE.md §Tone`.
-
-When `@pm` returns, show the commentary verbatim to the user:
-
-> **PM read on Phase \<N\>:**
+Show the commentary verbatim:
+> **PM read on Phase N:**
 >
-> \<commentary\>
+> <commentary>
 >
-> Use it (a), edit (e), or skip (s)?
+> Use (a), edit (e), or skip (s)?
 
-- **Use (a):** carry the commentary as-is into Step 5.
-- **Edit (e):** ask the user "What would you change?" — accept inline edits or a full rewrite paste, then carry the edited version forward.
-- **Skip (s):** carry an explicit "skip" sentinel forward; Step 5 omits the `### PM read` section entirely.
+- **Use:** carry forward.
+- **Edit:** ask "What would you change?" — apply edits, carry forward.
+- **Skip:** omit the section from RETROSPECTIVES.md.
 
-This is post-answers on purpose — putting `@pm` in front of your reflection would prime your own answers, which makes "what didn't" recall worse. The order matters; don't reorder lightly.
+## Step 6 — Append to RETROSPECTIVES.md
 
-## Step 5 — Append to RETROSPECTIVES.md
-
-If `docs/RETROSPECTIVES.md` doesn't exist, create it with a header. Append:
+If `docs/RETROSPECTIVES.md` doesn't exist, create it with `# Retrospectives\n\n`. Append:
 
 ```
 ## Phase <N> — <YYYY-MM-DD>
 
-**Duration:** <hours>h across <session count> sessions
-**Points completed:** <P> / <P_planned> (<%>)
-**Velocity:** <hrs/pt>
-**Issues:** <count> created, <closed_count> closed, <open_count> moved to Phase <N+1>
+**Sessions:** <count>
+**Points:** <points completed> / <planned> (<%>)
+**Wall clock:** <wall>h
+**Dev time:** <dev>h
+**Review time:** <review>h
+**Velocities:**
+- Wall: <wall/pt> h/pt
+- Dev: <dev/pt> h/pt  ← headline forecast
+- Review: <review/pt> h/pt
+**Issues:** <created> created, <closed> closed, <moved> moved to Phase <N+1>
+
+### Per-session breakdown
+| Session | Date | Wall | Dev | Review | Breaks | Points | PRs |
+|---------|------|------|-----|--------|--------|--------|-----|
+| <row>   | ...  | ...  | ... | ...    | ...    | ...    | ... |
 
 ### What worked
-- <verbatim from user>
+- <verbatim>
 
 ### What didn't
 - <verbatim>
@@ -128,75 +188,108 @@ If `docs/RETROSPECTIVES.md` doesn't exist, create it with a header. Append:
 - <verbatim>
 
 ### Scope changes
-- [List any tasks added mid-phase, moved out, or descoped]
+- [Tasks added mid-phase, moved out, descoped]
 
 ### PM read
-<commentary from Step 4.5, verbatim or edited>
+<commentary from Step 5.5, verbatim or edited — omit section if skipped>
 ```
 
-If the user chose **skip** in Step 4.5, omit the `### PM read` section entirely — don't write an empty header.
+## Step 7 — Commit (sessions branch updates are read-only here)
 
-## Step 6 — Commit and push
+Session files were already finalized by `/its-dead` and are not modified by this skill — DEC-013 atomicity.
 
 ```
 git add docs/PROJECT_PLAN.md docs/RETROSPECTIVES.md
-git commit -m "Phase <N> retro — <points> pts, <hours>h, <hrs/pt> hrs/pt"
+git commit -m "Phase <N> retro — <points> pts in <dev>h dev (<dev/pt> hrs/pt)"
 git push origin <BRANCH>
 ```
 
-## Step 6.5 — Minor version bump (dev projects only)
+## Step 8 — Version bumps (dev projects only — DEC-013 moved patch bumps from `/its-dead` here)
 
-Run only if `package.json` exists at the repo root (dev-project signal — DEC-007). Otherwise: skip silently.
+Run only if `package.json` exists at the repo root (dev-project signal — DEC-007).
 
-Resolve the working branch — phase boundaries land on `staging` if it exists, `main` otherwise:
+Resolve working branch:
 ```
 git show-ref --verify --quiet refs/remotes/origin/staging && WORKING_BRANCH=staging || WORKING_BRANCH=main
 ```
 
-If `BRANCH != $WORKING_BRANCH`: STOP. Phase retros must run on the working branch (otherwise the bump lands on a feature branch and gets orphaned). Tell the user: "Switch to `$WORKING_BRANCH` and re-run /retro." Wait.
+If `BRANCH != $WORKING_BRANCH`: STOP. Tell the user "Switch to `$WORKING_BRANCH` and re-run /retro." Wait.
 
-a. **Bump minor:**
-   ```
-   NEW_VERSION=$(npm version minor --no-git-tag-version | tr -d 'v')
-   ```
-   `npm version minor` zeros the patch automatically (e.g. `1.2.7 → 1.3.0`).
+### Step 8.1 — Enumerate merged PRs in the phase window
 
-b. **Append CHANGELOG entry.** If `CHANGELOG.md` doesn't exist, create with `# Changelog\n\n`. If it exists but doesn't start with the literal `# Changelog\n` header (e.g. setext form, `# CHANGELOG`, or notes above the header), STOP and surface to the user — do not guess where to insert. Otherwise prepend after the `# Changelog` header:
+```
+gh pr list --state merged --search "merged:>=<phase_start_iso> merged:<=<phase_end_iso>" --json number,title,mergedAt --limit 100
+```
+
+Sort by `mergedAt` ascending. Each PR earns one patch bump + one CHANGELOG entry.
+
+### Step 8.2 — Patch-bump per PR
+
+For each PR in order, sequentially:
+
+a. **Bump patch:** `NEW_VERSION=$(npm version patch --no-git-tag-version | tr -d 'v')`.
+
+b. **CHANGELOG entry.** If `CHANGELOG.md` doesn't exist, create with `# Changelog\n\n`. Read it first; if it doesn't start with the literal `# Changelog\n` header, STOP and surface (don't guess where to insert). Prepend after the header:
    ```
-   ## [<NEW_VERSION>] - <YYYY-MM-DD> — Phase <N>
-   - <points> pts shipped across <session count> sessions (<hrs/pt> hrs/pt)
-   - See `docs/RETROSPECTIVES.md` for the full retro
+   ## [<NEW_VERSION>] - <YYYY-MM-DD>
+   - PR #<N>: <title>
    ```
 
-c. **Commit:**
+c. **Commit + tag (main only):**
    ```
    git add package.json CHANGELOG.md
    [ -f package-lock.json ] && git add package-lock.json
-   git commit -m "Phase <N> close — bump version to v$NEW_VERSION"
+   git commit -m "Bump version to v<NEW_VERSION> (PR #<N>)"
+   ```
+   If `$WORKING_BRANCH = main`: `git tag "v<NEW_VERSION>"`. On `staging`: skip the tag — `/promote-staging` tags later.
+
+### Step 8.3 — Minor-bump at phase close
+
+After all PR patches:
+
+a. `NEW_VERSION=$(npm version minor --no-git-tag-version | tr -d 'v')` — zeros the patch (e.g. 1.2.7 → 1.3.0).
+
+b. CHANGELOG entry:
+   ```
+   ## [<NEW_VERSION>] - <YYYY-MM-DD> — Phase <N>
+   - <points> pts shipped across <session count> sessions (<dev/pt> hrs/pt dev)
+   - See `docs/RETROSPECTIVES.md` for the full retro
    ```
 
-d. **Tag (main only):** if `$WORKING_BRANCH = main`, also `git tag "v$NEW_VERSION"`. On staging, the tag waits for `/promote-staging`.
-
-e. **Push:**
+c. Commit + tag (main only):
    ```
-   git push origin "$WORKING_BRANCH"
+   git add package.json CHANGELOG.md
+   [ -f package-lock.json ] && git add package-lock.json
+   git commit -m "Phase <N> close — bump to v<NEW_VERSION>"
    ```
-   If a tag was created: `git push origin "v$NEW_VERSION"`.
+   `$WORKING_BRANCH = main` → `git tag "v<NEW_VERSION>"`. `staging` → skip.
 
-f. **Echo:** `Phase <N> closed at v<NEW_VERSION>` (and `tagged` if main).
+### Step 8.4 — Push
 
-## Step 7 — Offer to start next phase
+```
+git push origin "$WORKING_BRANCH"
+```
+If any tags were created in 8.2 or 8.3: `git push origin --tags`.
 
-Ask: "Phase <N+1> is next. Run `/start-phase <N+1>` now or stop here?"
+Echo: `Phase <N> closed at v<NEW_VERSION>` (and `tagged` if main).
 
-If the user says yes, hand off — do not invoke directly, let them invoke the skill so the framing of a fresh skill execution is preserved.
+## Step 9 — Offer next phase
 
-## Step 8 — Summary
+"Phase <N+1> is next. Run `/start-phase <N+1>` now or stop here?" Let the user invoke `/start-phase` themselves — don't auto-chain.
+
+## Step 10 — Summary
 
 ```
 Phase <N> closed.
-Points: <P> in <hours>h → <hrs/pt> hrs/pt
+Points: <P> in <dev>h dev time (<dev/pt> hrs/pt)
+Wall: <wall>h | Review: <review>h | Sessions: <count>
 Issues: <closed>/<created> closed; <moved> moved to Phase <N+1>
 Retro: docs/RETROSPECTIVES.md
-Version: v<NEW_VERSION> (dev projects only; skipped if no package.json)
+Version: v<NEW_VERSION>  (dev projects only; skipped if no package.json)
 ```
+
+## Notes
+
+- **Session files are read-only here.** Retro reads them; never writes. DEC-013 atomicity.
+- **GitHub queries can fail.** If `gh` and MCP are both unavailable, skip the PR-derived numbers, mark them `inference: github-unavailable` in the retro, and tell the user they can rerun retro later. Don't guess.
+- **The headline velocity is `dev_time / point`.** Wall-clock velocity is inflated by review-and-merge wait. Review-time velocity is interesting but secondary. Forecast against dev_time.

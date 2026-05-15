@@ -130,34 +130,34 @@ For each pattern, note: **occurred / not found / inconclusive**.
 ---
 
 ### P12 — /its-dead invoked twice in the same session
-**Signal:** Two /its-dead invocations in same session within 90-120s
-**Why it hurts:** Second run finds no [open] entry, produces corrupt log
-**Fix:** Guard check at top of its-dead Step 0
+**Signal:** Two `/its-dead` skill invocations within the same session (visible as two separate promptIds both running the skill), especially within 90–120 seconds of each other
+**Why it hurts:** Second run finds no open session entry, produces a corrupt or nonsensical log entry, or silently stomps on the already-committed one
+**Fix:** New-format its-dead Step 0 already guards against this — `grep -l "^status: open" sessions/*.md` returns empty on a second run, triggering the "stop and ask" path. In legacy mode: add explicit guard `grep "\[open\]" session-log.md | head -1` — if no output, bail out immediately rather than continuing
 **Files:** `.claude/skills/its-dead/SKILL.md`
 
 ---
 
-### P13 — Bash cat used instead of Read tool
-**Signal:** `cat <file>` or `cat <file> | head -N` to read source files
-**Why it hurts:** Loses line-numbered format; unbounded cat is P1 violation
-**Fix:** Use Read tool with offset/limit
-**Files:** The calling skill's SKILL.md
+### P13 — Bash cat used instead of Read tool for source file inspection
+**Signal:** `cat <file>` or `cat <file> | head -N` in a Bash call to read a source file that the Read tool could handle
+**Why it hurts:** Loses the line-numbered format that makes subsequent Edit calls precise; unbounded `cat` without `head` is also an implicit P1 violation
+**Fix:** Use the Read tool with `offset`/`limit` — it provides line numbers and integrates with Edit. Reserve `cat` for output piping (e.g. `cat file | grep pattern`)
+**Files:** The calling skill's SKILL.md (or note as a development practice reminder)
 
 ---
 
-### P14 — Repeated reads of same error-context file
-**Signal:** Same `test-results/*/error-context.md` read 2+ times
-**Why it hurts:** Multiple round trips to recover info available in first read
-**Fix:** `grep -A 50 "Error details" <error-context-file>`
-**Files:** Not a skill file — note in findings report
+### P14 — Repeated reads of the same error-context file with different grep patterns
+**Signal:** The same test error-context file (e.g. `test-results/*/error-context.md`) read 2+ times, each with a different grep or offset, because the initial read was truncated before the relevant section
+**Why it hurts:** Multiple round trips to recover info available in the first read
+**Fix:** When reading test error-context files, grep for the "Error details" section first rather than reading from the top: `grep -A 50 "Error details" <error-context-file>`
+**Files:** Not a skill file — note as a development practice in the findings report
 
 ---
 
-### P15 — Test retries masking shared-state race conditions
-**Signal:** `{ retries: N }` on specific test with race condition comment
-**Why it hurts:** Papers over isolation problem; gets worse as suite grows
-**Fix:** Namespace shared resource by test ID, proper isolation
-**Files:** Not a skill file — flag in findings report
+### P15 — Test retries used to mask shared-state race conditions
+**Signal:** `{ retries: N }` added to a specific test (not globally), with a comment citing a race condition with other test files or shared module state
+**Why it hurts:** Retries paper over a real isolation problem — the test can still fail, just less often; the race gets worse as the test suite grows or worker count increases
+**Fix:** Proper test isolation — namespace the shared resource by test ID (e.g. a `?key=` param on mock API endpoints), or restructure so each test file owns distinct state. Log as test infrastructure debt if not fixing immediately.
+**Files:** Not a skill file — flag in findings report as a test anti-pattern requiring follow-up
 
 ---
 
