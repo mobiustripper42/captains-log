@@ -31,7 +31,7 @@ The invoking caller passes `mode: interactive` (default) or `mode: auto`.
   - Stage commits with one of these literal message formats (no placeholders — substitute the actual values):
     - **PUSH:** `sync-config: push backport from <repo>` (e.g. `sync-config: push backport from bushel`)
     - **PULL:** `sync-config: pull propagate from seeds` (no `<repo>` — pull always sources from seeds)
-    One commit per source repo per direction. No empty commits.
+  One commit per source repo per direction. No empty commits.
   - Do NOT push, do NOT open a PR. The calling Routine handles git operations.
 
 If `mode` is missing, default to `interactive`. If `mode: auto` is requested but `direction` is also missing or ambiguous, STOP — auto mode requires both parameters resolved upfront.
@@ -77,7 +77,26 @@ For each pair that survived the gate, diff project-live against seeds-template:
 
 The diff itself is direction-symmetric — same hunks, same classification rubric. Direction only matters at apply time (Step 4).
 
-**Never blanket-skip a file** that has a corresponding template, even if the project's copy is heavily customized. Hunk-classify the diff. Files like `docs/BRAND.md`, `docs/PROJECT_PLAN.md`, `docs/RETROSPECTIVES.md`, and `CLAUDE.md` carry both project substitutions AND structural template content; treating them as 100%-project-specific blanks out the structural channel and was the failure mode of the 2026-05-08 first run. The only gate that drops a whole file is the project-type manifest above — and that gate is explicit.
+**Never blanket-skip a file** that has a corresponding template, even if the project's copy is heavily customized. Hunk-classify the diff. Files like `docs/BRAND.md`, `docs/PROJECT_PLAN.md`, `docs/RETROSPECTIVES.md`, and `CLAUDE.md` carry both project substitutions AND structural template content; treating them as 100%-project-specific blanks out the structural channel and was the failure mode of the 2026-05-08 first run. The only gates that drop a whole file from scope are the project-type manifest above and the duplicate-PR check in Step 1.5 below — both explicit.
+
+### Step 1.5 — Drop already-proposed diffs
+
+Before classifying, check open PRs on the apply-target repo. This prevents the Routine (or a manually-fired `/push-seeds` / `/pull-seeds`) from re-proposing a diff that's already pending on an open PR. The 2026-05-11 02:00 EDT Routine run opened seeds#21 as a byte-identical duplicate of the still-open seeds#20 because no such check existed.
+
+For each file pair where Step 1 produced a non-empty diff:
+
+- **PUSH** — apply-target is `mobiustripper42/seeds`. List its open PRs.
+- **PULL** — apply-target is the active project's repo. List its open PRs.
+
+Call `mcp__github__list_pull_requests` with `state: open`. For each PR whose changed-files list touches the same file path, fetch the file content at the PR's head SHA via `mcp__github__get_file_contents`. If applying this run's diff to the target file would produce content equal to what's already on that PR's head, drop the pair from the diff scope and record one entry for the Step 6 report:
+
+> `<file>` skipped — already proposed on `<PR URL>` (Already-proposed)
+
+Single-PR check is enough — if two open PRs both already propose the same change, the second is already a duplicate-of-a-duplicate and someone else's problem to close.
+
+If `mcp__github__list_pull_requests` is unavailable in this session, skip Step 1.5 entirely and log one line in the Step 6 report: `Duplicate-PR check skipped — list_pull_requests unavailable.` The duplicate-PR pollution this check prevents is annoying but recoverable (close-as-duplicate is easy); failing the whole run because the MCP tool is missing is worse.
+
+This check fires regardless of `mode`. In `mode: interactive`, surface each Already-proposed entry in the Step 3 table with the PR URL so the human can confirm the skip; in `mode: auto`, drop silently and surface in Step 6.
 
 ### Step 2 — Classify each diff hunk
 
@@ -121,7 +140,7 @@ Output a table:
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
 
-`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`, `[placeholder] filled with "We write in second person..."`). `Provenance` is one of `Project-only` / `Template-only` / `Both-modified` / `Type-gated`. `Classification` is `Skip` / `Backport` / `Flag`. `Action` is what you actually did/will do (`Skipped`, `Forward-ported`, `Backported`, `Flagged in PR body`).
+`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`, `[placeholder] filled with "We write in second person..."`). `Provenance` is one of `Project-only` / `Template-only` / `Both-modified` / `Type-gated` / `Already-proposed`. `Classification` is `Skip` / `Backport` / `Flag`. `Action` is what you actually did/will do (`Skipped`, `Forward-ported`, `Backported`, `Flagged in PR body`).
 
 For files dropped from scope by the Step 1 type gate, emit one row per gated file:
 
@@ -129,7 +148,13 @@ For files dropped from scope by the Step 1 type gate, emit one row per gated fil
 |------|------|------------|----------------|--------|
 | `agents/ui-reviewer.md` | (file) | Type-gated | Skip | Skipped — project type `tool`, file applies to `[webapp]` |
 
-Type-gated rows always carry `Hunk: (file)` (it's a whole-file gate, not a hunk classification) and `Action` includes both the project's type and the manifest's allowed list so the reviewer can verify the gate fired correctly.
+For files dropped from scope by the Step 1.5 duplicate-PR check, emit one row per dropped file:
+
+| File | Hunk | Provenance | Classification | Action |
+|------|------|------------|----------------|--------|
+| `dev/claude/skills/its-alive/SKILL.md` | (file) | Already-proposed | Skip | Skipped — already proposed on https://github.com/mobiustripper42/seeds/pull/39 |
+
+Type-gated and Already-proposed rows both carry `Hunk: (file)` (whole-file gates, not hunk classifications). Type-gated `Action` includes both the project's type and the manifest's allowed list. Already-proposed `Action` includes the existing PR's URL so the reviewer can compare.
 
 In `mode: interactive`:
 - For each **backport** (push) / **forward-port** (pull), show the diff hunk and ask: "Apply? (y/n)"
@@ -180,7 +205,7 @@ Apply if approved.
 Output:
 - Files updated (in `<seeds>/` for push, in the project for pull)
 - Bug fixes applied (or flagged) on the non-applying side
-- Changes skipped and why
+- Changes skipped and why — include Already-proposed entries with the existing PR URL, Type-gated entries with the project type + allowed list, and Project-only / Both-modified skips
 - Patterns flagged for future `shared/` extraction (if any)
 
 Remind the user to review the diff before committing. For PUSH, that's the seeds repo; for PULL, the project. Either way, the calling skill (`/push-seeds` or `/pull-seeds`) handles the commit step — you only apply the file edits.

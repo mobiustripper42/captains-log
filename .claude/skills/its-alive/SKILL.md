@@ -1,6 +1,6 @@
 ---
 name: its-alive
-description: Session start. Stamps the start time, opens a per-session file in `sessions/`, captures the active JSONL transcript path, reads last session context, reads the project plan, and presents a briefing with task recommendation. Waits for confirmation before any work begins.
+description: Session start. Stamps the start time, opens a per-session file on the orphan `sessions` branch via `.sessions-worktree/`, captures the active JSONL transcript path, reads last session context, reads the project plan, and presents a briefing with task recommendation. Waits for confirmation before any work begins.
 tools: Read, Edit, Write, Bash, Glob, Grep, Agent
 ---
 
@@ -9,33 +9,22 @@ You are executing the session start ritual.
 ## Step 0 — Branch check
 
 **Worktree check first:** run `git rev-parse --git-dir`.
-- If the output contains `/worktrees/`: this is a **linked worktree session** (concurrent with another session). Skip the rest of Step 0 — the branch here is intentional. Note "Linked worktree" in the briefing output and continue to Step 1.
+- If the output contains `/worktrees/`: this is a **linked worktree session** (concurrent with another session). Skip the rest of Step 0 — the branch here is intentional. Note "Linked worktree" in the briefing output and continue to Step 0.6.
 - Otherwise: continue.
 
 Run `git fetch origin` to refresh remote state. Capture `BRANCH=$(git branch --show-current)`.
 
-**Concurrent session check:** glob `sessions/*.md` for any file with `status: open` in its YAML frontmatter (`grep -l "^status: open" sessions/*.md 2>/dev/null`). If found:
-- Show the user: "Session N is already open (file: <name>). Is this: **(a)** a currently running concurrent session → I'll create a worktree for this new task, or **(b)** a stale/crashed entry → I'll mark abandoned and continue here?"
-- Wait for the user's answer.
-- If **(b)** (stale): change `status: open` to `status: abandoned` in that session file. Continue.
-- If **(a)** (concurrent): ask **"What branch name for this new task?"** Capture as `NEW_BRANCH`.
-  - `REPO=$(basename $(git rev-parse --show-toplevel))`
-  - `SLUG=${NEW_BRANCH#task/}`
-  - `git worktree add ../${REPO}-wt-${SLUG} -b ${NEW_BRANCH}`
-  - Tell the user: **"Worktree created at `../${REPO}-wt-${SLUG}`. Open a new CC window pointed there and run /its-alive. You can close this window."**
-  - **Stop here** — do not open a session file in the main worktree.
-
 **Branch handling:**
-- `task/*` or other intentional feature branch: continue (PR-flow project, DEC-005).
-- `claude/*` (CC Desktop / web / mobile auto-branch): accept and continue. The platform pre-cuts this branch when launching a session — `/kill-this` will PR it into `main` (or `staging`) at session end. Do **not** switch to `main` here; the platform's branch is the intended workspace.
+- `task/*` or other intentional feature branch: continue (PR-flow project).
+- `claude/*` (CC Desktop / web / mobile auto-branch): accept and continue. The platform pre-cuts this branch when launching a session. Per DEC-013, this branch is the **session-anchor**; per-task code branches get cut as work proceeds, each PR'd separately. Session-file commits go to the orphan `sessions` branch via the worktree (DEC-014), NOT to this branch.
 - `main`: `git pull --ff-only origin main`. On divergence, show `git log --oneline origin/main..HEAD` and `git log --oneline HEAD..origin/main`, then ask: **"(a) rebase, (b) reset to origin/main, (c) abort?"** Wait for the choice.
-- Anything else (manual non-standard branch): if `git status --porcelain` is dirty, stop and ask the user to commit/stash. If clean, ask the user **"Stay on `$BRANCH` or switch to `main`?"** Wait for the choice — don't auto-switch.
+- Anything else (manual non-standard branch): if `git status --porcelain` is dirty, stop and ask the user to commit/stash. If clean, ask the user **"Stay on `$BRANCH` or switch to `main`?"** Wait for the choice.
 
 ### Step 0.5 — Orphan branch + unmerged PR scan
 
-Before stamping time, check for leftover work from prior sessions. The CC platform creates a new `claude/*` branch per session, so previous sessions' branches and PRs stay alive on the remote until explicitly merged or deleted. This is the single biggest source of "I thought that was closed" surprises.
+Before stamping time, check for leftover work from prior sessions. The CC platform creates a new `claude/*` branch per session, so previous sessions' branches and PRs stay alive on the remote until explicitly merged or deleted.
 
-**Resolve `WORKING_BRANCH`** (same logic as `/its-dead` Step 5):
+**Resolve `WORKING_BRANCH`:**
 ```
 git show-ref --verify --quiet refs/remotes/origin/staging && WORKING_BRANCH=staging || WORKING_BRANCH=main
 ```
@@ -47,20 +36,55 @@ git for-each-ref refs/remotes/origin/claude/ --format='%(refname:short)'
 For each `origin/claude/<slug>` (other than the current branch): `git log --oneline origin/$WORKING_BRANCH..<ref>`. If non-empty, it's a candidate.
 
 **Scan B — open PRs from prior sessions:**
-- `gh pr list --state open --base "$WORKING_BRANCH" --json number,title,headRefName,createdAt,updatedAt --limit 20` — or MCP `mcp__github__list_pull_requests` if `gh` is unavailable.
+- `gh pr list --state open --base "$WORKING_BRANCH" --json number,title,headRefName,createdAt,updatedAt --limit 20` (or `mcp__github__list_pull_requests` if `gh` is unavailable).
 
-**Cross-reference** the two scans. Three categories surface:
+**Cross-reference** the two scans:
 | Category | Definition | Action |
 |----------|------------|--------|
-| Open-with-PR | Branch has unmerged commits AND an open PR | Tell the user; don't touch. They're "in flight." |
-| Orphan-without-PR | Branch has unmerged commits AND no open PR | **Real problem** — work would silently disappear. Surface with prompt: "(a) open a PR now, (b) cherry-pick onto current branch, (c) delete (commits will be lost)?" Wait. |
-| Stale-no-commits | Branch exists on remote but no commits ahead of `$WORKING_BRANCH` | Quietly suggest `git push origin --delete <ref>` if more than one such ref exists. |
+| Open-with-PR | Branch has unmerged commits AND an open PR | Tell the user; don't touch. In-flight. |
+| Orphan-without-PR | Branch has unmerged commits AND no open PR | **Real problem.** Surface: "(a) open a PR now, (b) cherry-pick onto current branch, (c) delete (commits lost)?" Wait. |
+| Stale-no-commits | Branch on remote but no commits ahead | Suggest `git push origin --delete <ref>` if more than one such ref exists. |
 
-Also surface any open PR whose `createdAt` is more than 24h old — likely forgotten merges. List with: "⚠ PR #N (`<title>`) has been open since `<createdAt>`. Merge with `gh pr merge N --merge --delete-branch` or close if abandoned."
+Also flag any open PR `createdAt` older than 24h — likely forgotten merges.
 
-This step is **advisory only** for in-flight work and **gating** for orphans-without-PR. Don't proceed past it without the user's explicit choice when an orphan is found.
+Gating for orphans-without-PR; advisory otherwise. If `gh` and MCP are both unavailable, skip silently and note in Context.
 
-If `gh` and MCP are both unavailable, skip this step silently — log a note in Context. The user can run `/restart-this` or rerun `/its-alive` once those tools come back.
+### Step 0.6 — Ensure `.sessions-worktree/` (DEC-014)
+
+The session file lives on an orphan `sessions` branch checked out at `.sessions-worktree/`. Skills commit there; the user's main checkout never moves.
+
+**Check for worktree.** `[ -d .sessions-worktree/.git ] && echo present || echo missing`.
+
+**If present:** `cd .sessions-worktree && git fetch origin sessions && git reset --hard origin/sessions && cd ..`. Continue to Step 1.
+
+**If missing — three sub-cases:**
+
+a. **`origin/sessions` exists on remote** (fresh clone / accidental delete): `git worktree add .sessions-worktree sessions origin/sessions`. Continue.
+
+b. **`origin/sessions` does NOT exist** (first run on this project — migration path): bootstrap the orphan branch.
+```
+git checkout --orphan sessions
+git rm -rf . 2>/dev/null || true
+# If a sessions/ dir existed on main, bring its contents over:
+git checkout main -- sessions/ 2>/dev/null || mkdir -p sessions
+[ -d sessions ] || mkdir sessions
+[ -f sessions/README.md ] || echo "# Sessions branch (DEC-014). Each project session writes one file here." > sessions/README.md
+git add sessions/
+git commit -m "Initialize sessions branch"
+git push -u origin sessions
+git checkout main
+# Remove sessions/ from main if it existed:
+[ -d sessions ] && git rm -r sessions && git commit -m "Move sessions to orphan sessions branch (DEC-014)" && git push origin main
+# Add .gitignore entry on main:
+grep -q "^\.sessions-worktree/" .gitignore 2>/dev/null || (echo ".sessions-worktree/" >> .gitignore && git add .gitignore && git commit -m "Ignore .sessions-worktree (DEC-014)" && git push origin main)
+# Attach worktree:
+git worktree add .sessions-worktree sessions
+```
+Note: on protected main, the two follow-up commits (remove `sessions/`, add `.gitignore`) may need a PR instead of direct push. Detect with `gh api repos/{owner}/{repo}/branches/main/protection --silent 2>/dev/null`; if protected, open a "Migrate to DEC-014" PR with those commits on a `claude/dec-014-migrate` branch and surface the URL.
+
+c. **`origin/sessions` exists but local sessions/ also has uncommitted files** (mid-migration): stop and ask the user to resolve manually.
+
+After Step 0.6 completes, `.sessions-worktree/` is checked out to the `sessions` branch and reflects `origin/sessions`. All subsequent session-file paths in this skill refer to `.sessions-worktree/sessions/<file>.md`.
 
 ## Step 1 — Stamp the time
 
@@ -70,19 +94,17 @@ DATE_PART=$(date -u +%Y-%m-%d)
 TIME_PART=$(date -u +%H%M)
 ```
 
-Record both — `DATE_PART` and `TIME_PART` go into the filename; `START_UTC` goes into the file's frontmatter.
-
 ## Step 2 — Resolve dev identity
 
-```
-DEV=$(cat ~/.claude/devname 2>/dev/null || echo "$USER")
-```
+Use the **Read** tool on `~/.claude/devname`. If it succeeds, `DEV` = the trimmed file contents.
 
-If `~/.claude/devname` is missing AND `$USER` is empty/unhelpful, prompt the user once and offer to write `~/.claude/devname` for them.
+If Read errors (file doesn't exist), fall back via Bash: `echo "$USER"`. Trim and assign to `DEV`.
+
+If both are empty, prompt the user for their dev handle and offer to write `~/.claude/devname` via the **Write** tool.
+
+(Read + a single clean `echo` keeps the harness validator silent — no `||`, no `2>/dev/null`, no command substitution chain.)
 
 ## Step 3 — Derive the slug
-
-Slug rule (in order of precedence):
 
 ```
 case "$BRANCH" in
@@ -94,43 +116,37 @@ case "$BRANCH" in
 esac
 ```
 
-**For domain repos with no semantic branch** (or `BRANCH=main` and the project is non-dev): if the user passes a topic via `/its-alive <topic>`, use that as the slug. Otherwise the default `main` is fine.
-
 Sanitize: lowercase, replace any non-`[a-z0-9.-]` with `-`, collapse repeats.
+
+**Concurrent session check** (now reads from the worktree, not main): `grep -l "^status: open" .sessions-worktree/sessions/*.md 2>/dev/null`. If a session is already open, ask:
+- **(a) concurrent** → set up a linked git worktree for the new task as before (separate from `.sessions-worktree/`, which is for the sessions branch — the linked worktree is for the new task's code branch).
+- **(b) stale** → mark `status: abandoned` in the open file and continue.
 
 ## Step 4 — Determine session number
 
-`SESSION_NUM=$(($(ls sessions/*.md 2>/dev/null | wc -l) + 1))`
+Use the **Glob** tool with `path: .sessions-worktree/sessions` and `pattern: *.md` to list current session files. Filter out `README.md` from the result. Call the remaining count `NEW_COUNT`.
 
-If `sessions/` does not exist: this is the first session under the new format. Create the dir: `mkdir -p sessions`. If the project has a legacy `session-log.md` with prior sessions, find the highest old session number and start from N+1 (counting both old and new). Run: `LEGACY_MAX=$(grep -oE "^## Session [0-9]+" session-log.md 2>/dev/null | grep -oE "[0-9]+" | sort -n | tail -1)`. Use `SESSION_NUM=$((${LEGACY_MAX:-0} + $(ls sessions/*.md 2>/dev/null | wc -l) + 1))`.
+Use the **Grep** tool on `session-log.md` (legacy archive on `main`) with `pattern: "^## Session [0-9]+"` and `output_mode: content`. If matches come back, parse the integer from each line and take the maximum — call it `LEGACY_MAX`. If `session-log.md` is absent or returns no matches, `LEGACY_MAX = 0`.
+
+`SESSION_NUM = LEGACY_MAX + NEW_COUNT + 1`. Compute in head — no bash needed.
+
+(Glob + Grep replaces a chained `ls | wc -l` + `grep | grep | sort | tail` pipeline — same validator-silence reason as Step 5.)
 
 ## Step 5 — Capture the transcript path
-
-Compute the project's JSONL directory path via Bash:
 
 ```
 echo "$HOME/.claude/projects/$(pwd | tr '/' '-')"
 ```
 
-Capture stdout as `JSONL_DIR`. The command is structurally simple — variable expansion + a single pipe + echo — and passes the harness validator without prompting (no globs, no `cd`, no output redirection).
+Capture as `JSONL_DIR`. Use the **Glob** tool with `path: <JSONL_DIR>` and `pattern: *.jsonl`. `TRANSCRIPT = result[0]`. If empty, leave `transcript:` blank.
 
-Then use the **Glob** tool to find the latest JSONL:
-- `path: <JSONL_DIR>`
-- `pattern: *.jsonl`
-
-Glob returns absolute paths sorted by modification time, newest first. `TRANSCRIPT = result[0]`.
-
-If the Glob result is empty (no JSONL files in the dir, or the dir doesn't exist), leave `transcript:` empty in the frontmatter — `/read-the-tape` will fall back to "latest JSONL" matching at audit time.
-
-**Why the Glob tool, not Bash:** earlier versions used `ls *.jsonl` directly. Two harness validator rules have flagged that path: tree-sitter-bash can't classify `"$VAR"/*.glob` (drops to confirmation), and a newer rule flags `cd "$VAR" && ls 2>/dev/null` (compound `cd` + output redirection). Each shape was a workaround for the other. Switching to the Glob tool sidesteps every Bash validator entirely — Glob runs through the harness's tool layer, not the shell. The lone Bash call above is small enough that no validator pattern triggers.
-
-## Step 6 — Compose the session filename and write the open entry
+## Step 6 — Write the open session file (in the worktree)
 
 ```
-SESSION_FILE="sessions/${DATE_PART}-${TIME_PART}-${DEV}-${SLUG}.md"
+SESSION_FILE=".sessions-worktree/sessions/${DATE_PART}-${TIME_PART}-${DEV}-${SLUG}.md"
 ```
 
-Write the file with this content:
+Write the file with this content (DEC-013 schema — atomic, no time math fields):
 
 ```
 ---
@@ -140,94 +156,85 @@ slug: <SLUG>
 branch: <BRANCH>
 started: <START_UTC>
 ended:
-wall_clock:
-dev_time:
-review_time:
-duration:
 points:
+pr_numbers: []
 status: open
-pr_number:
-pr_url:
-pr_opened_at:
 transcript: <TRANSCRIPT>
 ---
 
 # Session <N> — <SLUG>
 
-**Task:** [filled at /kill-this]
-
-**Completed:**
-
-**In Progress:**
-
-**Blocked:**
+<!-- Task blocks appended by /kill-this, one per task. -->
 
 **Next Steps:**
 
 **Context:**
-
-**Code Review:**
 ```
 
-Then immediately commit + push so the stop hook stays quiet through the briefing:
+Commit and push **on the sessions branch from inside the worktree**:
 
 ```
-git add "$SESSION_FILE"
+cd .sessions-worktree
+git add sessions/$(basename "$SESSION_FILE")
 git commit -m "Open Session $SESSION_NUM entry"
-git push origin "$BRANCH"
+git push origin sessions
+cd ..
 ```
 
 ## Step 7 — Read last session context
 
-Find the most recent CLOSED session file:
+Find the most recent CLOSED session file in the worktree:
 
 ```
-PREV=$(ls -t sessions/*.md 2>/dev/null | grep -v "$SESSION_FILE" | head -10)
+PREV=$(ls -t .sessions-worktree/sessions/*.md 2>/dev/null | grep -v README | grep -v "$(basename $SESSION_FILE)" | head -10)
 ```
 
-For each candidate (newest first), check if `status: closed` is in its frontmatter (`grep "^status: closed"`). The first match is the previous session. If none exist, fall back to reading the top entry of `session-log.md` (legacy archive) for context.
+For each candidate (newest first), check for `status: closed`. The first match is the previous session. If none exist, fall back to the top entry of `session-log.md` (legacy archive) if present.
 
-Extract from the previous file:
-- **Task** — what they were working on
-- **In Progress** — anything half-done
-- **Blocked** — anything waiting
-- **Next Steps** — exact verbatim
-- **Context** — gotchas worth remembering
+Extract:
+- **Task blocks** (`## Task <N>` sections in the body) — what was shipped
+- **Next Steps** — verbatim
+- **Context** — gotchas
+
+**Pre-DEC-013 schema tolerance:** legacy session files use a single `Task:` block instead of `## Task <N>` headers. Read either shape.
 
 ## Step 8 — Read project state
 
-Grep `docs/PROJECT_PLAN.md` — do not read the whole file:
-- Unchecked tasks: `grep "\[ \]" docs/PROJECT_PLAN.md`
-- Deferred tasks: `grep "\[~\]" docs/PROJECT_PLAN.md`
-- Priority note: `grep "Next session priority" docs/PROJECT_PLAN.md -A 2`
+Grep `docs/PROJECT_PLAN.md`:
+- Unchecked: `grep "\[ \]" docs/PROJECT_PLAN.md`
+- Deferred: `grep "\[~\]" docs/PROJECT_PLAN.md`
+- Priority: `grep "Next session priority" docs/PROJECT_PLAN.md -A 2`
 - Current phase: `grep -E "^## Phase " docs/PROJECT_PLAN.md | head -3`
 - Velocity: `grep "Velocity baseline" docs/PROJECT_PLAN.md -A 1`
 
-If the project uses Issues for the active phase (post-Phase-rituals rollout), also check active issues:
-- `gh issue list --label "phase:current" --state open --json number,title,labels --limit 50` (skip silently if `gh` unavailable or the project doesn't use Issues yet).
+If the project uses phase-rituals: `gh issue list --label "phase:current" --state open --json number,title,labels --limit 50`.
 
 ## Step 9 — Present briefing
 
 ```
 Session <N> — <DATE_PART>
 Started: <local time> (<UTC time>)
-Branch: <BRANCH>
-Session file: <SESSION_FILE>
+Branch (session anchor): <BRANCH>
+Session file: <SESSION_FILE>   (lives on `sessions` branch via .sessions-worktree/)
 Dev: <DEV>
 
 Last session: [one-line summary]
 
-In Progress: [anything half-done]
-Blocked: [anything waiting]
 Next Steps from last session: [verbatim or paraphrased]
+Context to remember: [gotchas worth mentioning]
 
 Recommended task: [task ID + name + why]
 
-[On `main`:] ⚠ First move after confirming: cut the branch — `git checkout -b task/X.Y-description`
-[On `task/*`:] Branch already cut: <BRANCH> — good to go.
-[Linked worktree:] Linked worktree on <BRANCH> — concurrent session, good to go.
+Branch already cut: <BRANCH> — good to go. Each task today gets its own /kill-this; the session file lives on the orphan `sessions` branch independent of any task branch.
 ```
 
 Then ask: **"Ready to go? Confirm the task or redirect me."**
 
-Stop here. Do not begin any implementation work until the user confirms.
+Stop. Do not begin work until the user confirms.
+
+## DEC-013 + DEC-014 reminders
+
+- One Claude window opens **one** session. `/its-dead` runs **once** at the end.
+- `/kill-this` may run multiple times — one per task — each opens its own PR and appends a `## Task <N>` block to this session file (on the sessions branch).
+- Time math happens at `/retro`, not at close. `/its-dead` displays wall_clock to screen for gut-check but writes no time field.
+- Once `/its-dead` writes `ended:` and `status: closed`, this file is never modified again. Atomic.

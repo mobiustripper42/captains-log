@@ -9,7 +9,7 @@ You are resuming a paused session. Do NOT open a new session entry — this is a
 ## Step 0 — Locate the open session
 
 ```
-SESSION_FILE=$(grep -l "^status: open" sessions/*.md 2>/dev/null | head -1)
+SESSION_FILE=$(grep -l "^status: open" .sessions-worktree/sessions/*.md 2>/dev/null | head -1)
 ```
 
 If found: NEW MODE.
@@ -21,10 +21,19 @@ If neither found: stop and tell the user there's no open session to resume — t
 
 `RESUME_UTC=$(date -u +%H:%M)`
 
-Append to the session file (or open session-log.md entry), immediately after the most recent `[PAUSED ...]` line:
+Append to the session file (in the worktree) immediately after the most recent `[PAUSED ...]` line:
 
 ```
 **[RESUMED HH:MM UTC]**
+```
+
+Commit + push from inside the worktree:
+```
+cd .sessions-worktree
+git add sessions/$(basename "$SESSION_FILE")
+git commit -m "Resume note for Session <N>"
+git push origin sessions
+cd ..
 ```
 
 ## Step 2 — Read the pause note
