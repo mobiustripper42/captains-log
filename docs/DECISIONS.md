@@ -90,6 +90,8 @@ Migrated from helm to this repo on 2026-05-07.
 
 ## DEC-009: Captain's Log writes to Google Sheets via service-account auth, not MCP
 
+**Amended by DEC-012:** Sheet writes are no longer synchronous on the Purser confirmation path. SQLite is the source of truth (DEC-012); a nightly sync job reads `trips.findUnsynced()` and appends rows. Auth path (service-account JSON, `google-spreadsheet` v4) is unchanged.
+
 **Decision:** Purser writes rows to the Brewboat Google Sheet via the `google-spreadsheet` npm package authenticated with a Google Cloud service-account JSON key. Not the Google Sheets MCP server.
 
 **Why:** MCP is a Claude-Code-time integration — it lives in the agent's tool surface during interactive sessions. Captain's Log runs as a long-lived systemd service on bee-grace with no Claude-Code process attached. The right primitive is a programmatic auth path: GCP project, Sheets API enabled, service account, JSON key on disk, sheet shared with the service-account email as Editor. `google-spreadsheet` v4 wraps this cleanly.
@@ -103,6 +105,8 @@ Migrated from helm to this repo on 2026-05-07.
 ---
 
 ## DEC-010: Captain conversation state lives in flat per-captain JSON files
+
+**Superseded by DEC-012** (Session 7, 2026-05-13). Conversation state now lives in the `conversation_state` SQLite table; `state/*.json` is no longer written. The original rationale and tradeoff are preserved below for context.
 
 **Decision:** Purser maintains per-captain conversation state in `state/<chat_id>.json` (Telegram; SMS will use `state/<phone>.json` when added), written via atomic rename (`*.tmp` → final). Each file has at most two top-level keys: `open_trip` (a captain's start-of-trip partial awaiting trip-end completion) and `pending_confirmation` (a parsed structured entry awaiting captain "Y" or correction). Either is null when absent. The `state/` directory is gitignored.
 
@@ -129,3 +133,27 @@ Migrated from helm to this repo on 2026-05-07.
 **TODO:** Full rationale and alternatives to be pasted in from Eric's decision notes (pending).
 
 **Revisit if:** Telegram penetration among captains is lower than expected, or SMS becomes operationally necessary before the season starts.
+
+---
+
+## DEC-012: SQLite is the source of truth for trips, drills, and conversation state
+
+**Decision:** A single `better-sqlite3` database at `data/captainslog.db` (path overridable via `CAPTAINSLOG_DB_PATH`) is the source of truth for Captain's Log records. Trips, drills, crew, conversation state, and feedback all live there. Google Sheets becomes an async presentation target written by a nightly sync job (DEC-009 as amended). The `data/` directory is gitignored — the DB lives on the server filesystem and is not version-controlled.
+
+**Why:** Reading the existing Brewboat Google Sheet schema against 46 CFR Subchapter T (185.504 passenger count, 185.506 safety orientation, drill cadence per 185.420/520/524) revealed the Sheet schema doesn't match the regulatory record we need. The Sheet is a Google Form artifact — its columns are constrained by the form UI, not the regulation. SQLite is free, embedded, transactional, and lets us write trip + conversation-state transitions atomically. No network dependency on the confirmation hot path. Single file, server-local, trivially backed up.
+
+The trigger was concrete: Session 4 caught a hardcoded `filed_to_sheet: false` at `lib/purser.js:101` — Sheet writes had never actually been implemented. The choice was "build Sheet writes against a schema we know doesn't fit" or "pivot now, before any Sheet write exists." We pivoted.
+
+**Implementation across sessions:**
+- Session 5 (2.2) — `lib/db.js` (driver, WAL, tx helper), `lib/migrate.js`, `lib/migrations/001_init.sql` (8 tables, V1 + V2 baked), startup hook.
+- Session 6 (2.3) — `lib/trips.js` CRUD with `findUnsynced`/`markSynced`, `lib/crew.js` resolver, `lib/rosters.js`, Purser cutover (Sheet write block replaced with SQLite tx), `lib/structured-log.js` deleted.
+- Session 7 (2.4) — `lib/state.js` rewritten against `conversation_state` table; `state/*.json` no longer written. Supersedes DEC-010.
+- Session 8+ (2.5) — `lib/sheets.js` async sync job reading `trips.findUnsynced()` and appending to the Sheet on a separate cadence from confirmation.
+
+**Supersedes:** DEC-010 (per-captain state JSON).
+
+**Amends:** DEC-009 (Sheets via service account) — auth path unchanged; writes are async, not synchronous.
+
+**Tradeoff:** SQLite is an operational dependency the previous DEC-010 rationale rejected. We accept it now because the regulatory record is the deliverable — flat JSON can't carry the relational shape (trip ↔ crew, drill ↔ trip, sync state per row). Backups become a real concern: the DB is the only authoritative copy until a Sheet row is synced. Mitigation: WAL mode, `data/` on the server filesystem with the existing host-level backup story, and the Sheet itself as a second copy of every confirmed trip once 2.5 ships.
+
+**Revisit if:** The DB outgrows a single file (multi-tenant, cross-boatyard), or the Sheet sync proves unreliable enough that captains can't trust the Sheet as a second copy.

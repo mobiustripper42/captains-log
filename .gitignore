@@ -23,7 +23,7 @@ yarn-error.log*
 # Sessions worktree (DEC-014) — orphan sessions branch checked out here
 .sessions-worktree/
 
-# Captain's Log — runtime conversation state (DEC-010) + credentials
+# Captain's Log — credentials + legacy state files (pre-DEC-012, no longer written)
 state/*.json
 google-service-account.json
 *-service-account.json

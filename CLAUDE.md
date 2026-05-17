@@ -17,9 +17,10 @@ Clark, Bilge, Tiller).
 - **Framework:** Express (Telegram Bot webhook) + node-cron (nightly digest)
 - **Models:** `claude-haiku-4-5` (parse / confirmation FSM), `claude-sonnet-4-6`
   (nightly digest). Direct Anthropic SDK — see DEC-008.
-- **Storage:** Google Sheets (existing Brewboat form schema, DEC-009) +
-  flat per-captain state JSON (DEC-010) + plaintext raw message log per day
-  (`helm:DEC-003`)
+- **Storage:** SQLite via `better-sqlite3` is the source of truth (DEC-012) —
+  trips, drills, conversation state, crew. Google Sheets (DEC-009 as amended)
+  is an async presentation target written by a nightly sync job. Plaintext raw
+  message log per day for audit (`helm:DEC-003`).
 - **Messaging:** Telegram Bot API — no SDK, plain `fetch` (DEC-011)
 - **Email:** Gmail SMTP w/ app password (`helm:DEC-005`)
 - **Host:** bee-grace (dev). VPS production lands in Phase 4.
@@ -34,9 +35,10 @@ Telegram → POST /webhook/telegram → Scribbler.append() → 200 OK
                                          │
                                          ├─ parse (Haiku 4.5)
                                          ├─ outbound confirm (Telegram sendMessage)
-                                         ├─ on Y → write Sheet row
-                                         └─ persist state to state/<chat_id>.json
+                                         ├─ on Y → SQLite tx: insert trip + clear state
+                                         └─ persist state to conversation_state row
 
+Async cron → Purser.syncSheet() → append trips.findUnsynced() rows → mark synced
 22:00 ET cron → Purser.digest() → Sonnet 4.6 → email to eric@stoffer.net
 ```
 
@@ -53,10 +55,9 @@ captains-log/
 │   ├── captains.json    # chat_id → captain lookup
 │   ├── boats.json       # boat registry + aliases
 │   └── routes.json      # route registry + aliases
-├── raw/YYYY-MM-DD.log         # append-only message archive (DEC-003)
-├── structured/YYYY-MM-DD.json # parsed entries (pre/post Sheet write)
-├── state/<chat_id>.json       # per-captain conversation state (DEC-010, gitignored)
-├── digest/YYYY-MM-DD.html     # nightly digest snapshots
+├── data/captainslog.db        # SQLite source of truth (DEC-012, gitignored)
+├── raw/YYYY-MM-DD.log         # append-only message archive (DEC-003, gitignored)
+├── digest/YYYY-MM-DD.html     # nightly digest snapshots (gitignored)
 ├── PROJECT_PLAN.md            # phases, tasks, estimates
 ├── README.md                  # setup + run + prod handoff
 └── .env                       # secrets (gitignored — see .env.example)
@@ -69,7 +70,7 @@ captains-log/
 | `README.md` | Setup, run, prod handoff |
 | `PROJECT_PLAN.md` | Phases, tasks, effort, status |
 | `docs/SPEC.md` | Spec — what we're building, scope, V1 vs later |
-| `docs/DECISIONS.md` | DEC-004/007/008/009/010/011 — DEC numbering preserved from helm |
+| `docs/DECISIONS.md` | DEC-004/007/008/009/010/011/012 — DEC numbering preserved from helm |
 | `helm:docs/DECISIONS.md` | Cross-repo decisions still in helm: DEC-003 (log format), DEC-005 (digest delivery), DEC-006 (Scrawl precedent for DEC-007) |
 | `.claude/seeds-version` | Schema version this project was last installed at. Used by `/pull-seeds` to gate template syncs. |
 | `.claude/project-type` | Project type — `webapp` or `tool`. Used by `@sync-config` to gate template files that don't apply to this project's type (DEC-011). Optional. |
@@ -125,8 +126,8 @@ tail -f raw/$(date -u +%F).log
 - Service logs: console + journalctl (in prod). No log library in V1.
 
 ### Storage rules
-- `state/*.json` is **gitignored** — recoverable from raw log + Sheet (DEC-010)
-- `raw/`, `structured/`, `digest/` are **gitignored** — live on server filesystem; Sheet is the authoritative record
+- `data/` (SQLite DB) is **gitignored** — source of truth per DEC-012, lives on server filesystem
+- `raw/`, `digest/` are **gitignored** — live on server filesystem; SQLite is the authoritative record, Sheet is a second copy after async sync
 - Service-account JSON files are **gitignored**
 
 ## Session Skills
