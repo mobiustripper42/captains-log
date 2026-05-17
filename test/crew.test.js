@@ -50,3 +50,23 @@ test('resolve is idempotent — repeat calls return same id, no duplicate row', 
   const count = db.prepare("SELECT COUNT(*) AS n FROM crew WHERE LOWER(name) = 'eric'").get().n;
   assert.equal(count, 1);
 });
+
+test('crew(name) has a case-insensitive unique index', () => {
+  const db = freshDb();
+  db.prepare('INSERT INTO crew (name) VALUES (?)').run('Aaron');
+  assert.throws(
+    () => db.prepare('INSERT INTO crew (name) VALUES (?)').run('aaron'),
+    /UNIQUE constraint failed/,
+  );
+});
+
+test('resolve finds an existing row inserted directly (no double-insert)', async () => {
+  const db = freshDb();
+  const { lastInsertRowid } = db
+    .prepare('INSERT INTO crew (name, full_name) VALUES (?, ?)')
+    .run('Eric', 'Eric Stoffer');
+  const id = await resolve(db, 'eric');
+  assert.equal(id, Number(lastInsertRowid));
+  const count = db.prepare("SELECT COUNT(*) AS n FROM crew WHERE LOWER(name) = 'eric'").get().n;
+  assert.equal(count, 1);
+});

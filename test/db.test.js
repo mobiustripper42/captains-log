@@ -26,7 +26,7 @@ test('migrate creates all 8 tables and bumps user_version to current head', () =
     'trip_crew',
     'trips',
   ]);
-  assert.equal(db.pragma('user_version', { simple: true }), 2);
+  assert.equal(db.pragma('user_version', { simple: true }), 3);
 });
 
 test('migrate is idempotent', () => {
@@ -76,9 +76,9 @@ test('migration 002: trip_crew rows survive the trips table rebuild', () => {
     .run();
   db.prepare('INSERT INTO trip_crew (trip_id, crew_id, role) VALUES (?, 1, ?)').run(tripId, 'mate');
 
-  // Now apply pending migrations (002).
+  // Now apply pending migrations (002, 003).
   migrate(db);
-  assert.equal(db.pragma('user_version', { simple: true }), 2);
+  assert.equal(db.pragma('user_version', { simple: true }), 3);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trip_crew').get().n, 1);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trips').get().n, 1);
 });

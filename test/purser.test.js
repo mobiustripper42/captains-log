@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Y_PATTERN, formatConfirmation } from '../lib/purser.js';
+import { Y_PATTERN, formatConfirmation, fileTrip } from '../lib/purser.js';
+import { openDb } from '../lib/db.js';
+import { migrate } from '../lib/migrate.js';
+import { _resetCacheForTests } from '../lib/rosters.js';
+
+function freshDb() {
+  _resetCacheForTests();
+  const db = openDb(':memory:');
+  migrate(db);
+  return db;
+}
 
 // --- Y_PATTERN ---
 
@@ -98,4 +108,55 @@ test('formatConfirmation singular trip', () => {
 test('formatConfirmation uses captain name in header', () => {
   const msg = formatConfirmation('Drew', full);
   assert.ok(msg.startsWith('Confirming your log, Drew:'));
+});
+
+// --- fileTrip — boat-slug resolution ---
+
+const captain = { name: 'Eric' };
+
+function stateWith(parsedOverrides) {
+  return {
+    parsed: {
+      boat: 'Brewboat',
+      route: 'Cuyahoga River',
+      trip_count: 1,
+      total_passengers: 10,
+      ...parsedOverrides,
+    },
+    raw_message: 'test message',
+    received_at: '2026-05-17T20:00:00Z',
+    correction_count: 0,
+  };
+}
+
+test('fileTrip throws UNKNOWN_BOAT when parsed.boat does not resolve', async () => {
+  const db = freshDb();
+  await assert.rejects(
+    () => fileTrip({ db, chatId: '1', captain, state: stateWith({ boat: 'Mystery Boat' }), source: 'telegram' }),
+    (err) => err.code === 'UNKNOWN_BOAT' && err.boatName === 'Mystery Boat',
+  );
+  const count = db.prepare('SELECT COUNT(*) AS n FROM trips').get().n;
+  assert.equal(count, 0, 'no trip row should be written on unknown-boat reject');
+});
+
+test('fileTrip throws UNKNOWN_BOAT when parsed.boat is empty', async () => {
+  const db = freshDb();
+  await assert.rejects(
+    () => fileTrip({ db, chatId: '1', captain, state: stateWith({ boat: null }), source: 'telegram' }),
+    (err) => err.code === 'UNKNOWN_BOAT' && err.boatName === null,
+  );
+});
+
+test('fileTrip succeeds with a known boat slug', async () => {
+  const db = freshDb();
+  const { id } = await fileTrip({
+    db,
+    chatId: '1',
+    captain,
+    state: stateWith({ boat: 'Brewboat' }),
+    source: 'telegram',
+  });
+  const row = db.prepare('SELECT boat_slug, status FROM trips WHERE id = ?').get(id);
+  assert.equal(row.boat_slug, 'brewboat');
+  assert.equal(row.status, 'confirmed');
 });
