@@ -1,10 +1,14 @@
 {
   "cuyahoga": {
     "official_name": "Cuyahoga River",
-    "aliases": ["cuyahoga", "the river", "cuy", "cuyahoga river"]
+    "aliases": ["cuyahoga", "the river", "cuy", "cuyahoga river"],
+    "lat": 41.4993,
+    "lon": -81.6944
   },
   "lake_erie": {
     "official_name": "Lake Erie",
-    "aliases": ["lake", "erie", "lake erie", "out on the lake", "the lake"]
+    "aliases": ["lake", "erie", "lake erie", "out on the lake", "the lake"],
+    "lat": 41.5500,
+    "lon": -81.7000
   }
 }
