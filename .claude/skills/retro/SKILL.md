@@ -70,20 +70,22 @@ If both unavailable: skip PR-derived math for this session; note `inference: git
 
 ### Step 2.5 — dev_time and review_time
 
-The session has a dev phase (work happens, possibly across multiple tasks) and review phases (user reviews each PR and merges). Compute:
+The session has a dev phase (work happens, possibly across multiple tasks via N `/kill-this` calls) and review phases (user reviews each PR and merges). Under DEC-013, multi-task sessions are the norm — `min(pr.createdAt)` is just the first `/kill-this`, after which dev work continues on Task 2..N. The dev window therefore runs to the **last** `/kill-this`, not the first.
 
-**`dev_time`** = `(min(all pr.createdAt) − started) − breaks_in_dev_window`
-- Window: `started` to the earliest PR opening of the session. (If no PRs, dev window = `started` to `ended`.)
+**`dev_time`** = `(max(all pr.createdAt) − started) − breaks_in_dev_window`
+- Window: `started` to the latest PR opening of the session. (If no PRs, dev window = `started` to `ended`.)
 - Breaks: count only break gaps whose start timestamp falls inside this window.
+- In-session review of earlier PRs (reading the diff at `/kill-this` time) is overlapped with dev and counted as dev, not subtracted out — the user isn't review-blocked between tasks.
 
-**`review_time`** = sum across all PRs of `(merged_at − created_at) − overlap_with_dev` for each merged PR, capped at `ended − earliest_pr.created_at` if user merged before `/its-dead`.
-- If a PR was opened mid-session and merged after `/its-dead`, count only the in-session portion (up to `ended`).
-- If a PR was opened and merged in-session, count the full open→merged span.
+**`review_time`** = sum across all PRs of the post-dev-window portion of `(merged_at − created_at)`, capped at `ended − max(pr.createdAt)` if the user merged before `/its-dead`. Post-dev-window = `[max(pr.createdAt), ended]`.
+- If a PR was opened mid-session and merged after `/its-dead`, count only the in-session portion from `max(pr.createdAt)` to `ended`.
+- If a PR was opened and merged in-session, count `max(0, merged_at − max(pr.createdAt))`. The clamp is load-bearing, not a clock-skew guard: if a PR merged *before* `max(pr.createdAt)` (Task 1's PR reviewed while Task 2 was being built), that review is overlapped with dev per the dev_time rule above and intentionally absorbed into dev_time — contributing 0 here is the correct behavior, not a missing case.
 - Subtract any break gaps inside the review window.
 
 Edge cases:
 - No PRs at all: `dev_time = wall_clock - breaks`, `review_time = 0`.
-- All PRs merged after `/its-dead`: `review_time = max(0, ended - earliest_pr.created_at - breaks_in_review_window)`.
+- Single-PR session: `max(pr.createdAt) = min(pr.createdAt)`, the formula collapses to the pre-fix shape — no behavior change for the one-task case.
+- All PRs merged after `/its-dead`: `review_time = max(0, ended − max(pr.createdAt) − breaks_in_review_window)`.
 - A PR was closed without merging: do not count it in `review_time`.
 
 Round all times to nearest 0.083h (5 min). If any number comes out negative due to clock skew, clamp to 0.
@@ -125,8 +127,8 @@ Reconcile drift: issues with `phase:<N>` labels that don't appear in PROJECT_PLA
 Update the velocity table at the top:
 ```
 | Phase | Sessions | Points | Wall (h) | Dev (h) | Review (h) | hrs/pt (dev) |
-|-------|----------|--------|----------|---------|------------|------------------|
-| N     | <count>  | <pts>  | <wall>   | <dev>   | <review>   | <hrs_pt_dev>     |
+|-------|----------|--------|----------|---------|------------|------|
+| N     | <count>  | <pts>  | <wall>   | <dev>   | <review>   | <hrs_pt_dev> |
 ```
 
 Append one row per phase as they complete.
@@ -293,3 +295,4 @@ Version: v<NEW_VERSION>  (dev projects only; skipped if no package.json)
 - **Session files are read-only here.** Retro reads them; never writes. DEC-013 atomicity.
 - **GitHub queries can fail.** If `gh` and MCP are both unavailable, skip the PR-derived numbers, mark them `inference: github-unavailable` in the retro, and tell the user they can rerun retro later. Don't guess.
 - **The headline velocity is `dev_time / point`.** Wall-clock velocity is inflated by review-and-merge wait. Review-time velocity is interesting but secondary. Forecast against dev_time.
+- **The dev/review boundary is the LAST `/kill-this` of the session, not the first** (Step 2.5). Pre-fix, the formula used `min(pr.createdAt)`, which dropped Tasks 2..N out of `dev_time` and into `review_time`. Bushel Phase 3 retro surfaced the artifact: 0.15 h/pt dev vs 0.35 h/pt active. Any historical retro run before this fix that included multi-task sessions has under-reported `dev_time` and over-reported `review_time` — treat those numbers as method artifacts and forecast against `wall_clock − breaks` (active time) instead.
