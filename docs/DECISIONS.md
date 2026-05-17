@@ -58,7 +58,7 @@ Migrated from helm to this repo on 2026-05-07.
 
 ## DEC-007: Captain's Log runs as a single plain Node service
 
-**Decision:** Both Scribbler (Twilio intake) and Purser (parse + confirm + Sheets file + nightly digest) live in one Express + `node-cron` Node process at `bin/server.js` on bee-grace, under systemd. Not OpenClaw agents.
+**Decision:** Both Scribbler (Telegram intake) and Purser (parse + confirm + Sheets sync + nightly digest) live in one Express + `node-cron` Node process at `bin/server.js` on mill-dev, under systemd. Not OpenClaw agents.
 
 **Why:** Scribbler is pure plumbing — signature-verify a Twilio POST, look up the sender, append a raw-log line, return TwiML. `helm:DEC-006`'s "no LLM in ingest → plain Node" rationale applies verbatim. Purser does need LLM calls, but it also needs an Express webhook handler, the Twilio REST client for outbound SMS, the Google Sheets API, a weather API client, and a 22:00 ET cron job — none of which OpenClaw helps with, and several of which OpenClaw doesn't currently support (Twilio channel, arbitrary HTTP webhooks). Co-locating Scribbler and Purser in one process avoids IPC for the parse-after-append handoff: the webhook handler appends raw, acks Twilio, then fires-and-forgets a `purser.handle()` call in-process.
 
@@ -92,7 +92,7 @@ Migrated from helm to this repo on 2026-05-07.
 
 **Decision:** Purser writes rows to the Brewboat Google Sheet via the `google-spreadsheet` npm package authenticated with a Google Cloud service-account JSON key. Not the Google Sheets MCP server.
 
-**Why:** MCP is a Claude-Code-time integration — it lives in the agent's tool surface during interactive sessions. Captain's Log runs as a long-lived systemd service on bee-grace with no Claude-Code process attached. The right primitive is a programmatic auth path: GCP project, Sheets API enabled, service account, JSON key on disk, sheet shared with the service-account email as Editor. `google-spreadsheet` v4 wraps this cleanly.
+**Why:** MCP is a Claude-Code-time integration — it lives in the agent's tool surface during interactive sessions. Captain's Log runs as a long-lived systemd service on mill-dev (and later a VPS) with no Claude-Code process attached. The right primitive is a programmatic auth path: GCP project, Sheets API enabled, service account, JSON key on disk, sheet shared with the service-account email as Editor. `google-spreadsheet` v4 wraps this cleanly.
 
 **Alternative considered:** Stand up an MCP client inside the Node service. Rejected — adds a Claude dependency to a captain-facing critical path and provides no capability we don't already have via the Sheets REST API.
 

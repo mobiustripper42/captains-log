@@ -39,7 +39,7 @@ captainslog/
 └── .env                 # secrets (gitignored — see .env.example)
 ```
 
-## Setup (dev on bee-grace)
+## Setup (dev on mill-dev)
 
 1. **Install Node deps.**
    ```bash
@@ -113,7 +113,7 @@ Bee-grace is dev. Production will be a VPS. The handoff is:
 5. Set up systemd: `Restart=on-failure`, `WorkingDirectory=/srv/captainslog`, `EnvironmentFile=/srv/captainslog/.env`. (Unit file lands in 3.8 once we're closer to production.)
 6. Sanity check: `curl https://<prod-domain>/health` → 200, send one test SMS, watch journalctl.
 
-No bee-grace-specific paths are baked into the code. Everything portable lives in `.env` or `config/`.
+No mill-dev-specific paths are baked into the code. Everything portable lives in `.env` or `config/`.
 
 ## Conventions
 
