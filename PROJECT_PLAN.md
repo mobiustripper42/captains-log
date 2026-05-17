@@ -50,14 +50,14 @@ atomic-tx confirmation + state changes. Pivot triggered Session 4 before any
 Sheet write was implemented — `filed_to_sheet: false` was hardcoded in
 `lib/purser.js:101`. Decision pending in `DEC-012`.
 
-**Total remaining:** 5 pts (2.1, 2.2, 2.3 shipped).
+**Total remaining:** 3 pts (2.1, 2.2, 2.3, 2.4 shipped).
 
 | # | Task | Effort | Status | Notes |
 |---|------|--------|--------|-------|
 | 2.1 | Parse FSM — Haiku 4.5 → JSON → Y/correction loop | 13 | ✓ | Session 3. Was originally helm 3.3. |
 | 2.2 | SQLite + schema + driver + migrations on startup | 3 | ✓ | `lib/db.js` (driver, WAL, tx helper) + `lib/migrate.js` + `lib/migrations/001_init.sql` (8 tables — V1 + V2 baked) + startup hook + tests. |
 | 2.3 | Trip CRUD + Purser cutover + crew lookup | 5 | ✓ | `lib/trips.js` (create/findById/findUnsynced/markSynced/update/remove), `config/crew.json` + `lib/crew.js` resolver (case-insensitive + alias, lazy crew-row create), `lib/rosters.js` (shared boats/routes/crew loader + slug helpers), `lib/purser.js` cutover (replace `filed_to_sheet: false` block with SQLite tx, resolve first-mate before write), `lib/migrations/002_photo_urls_check.sql` (table-rebuild + JSON CHECK), `lib/db.js` `CAPTAINSLOG_DB_PATH` env override, `lib/migrate.js` FK-off + `foreign_key_check`, deleted `lib/structured-log.js`. 40/40 tests green. |
-| 2.4 | `conversation_state` in SQLite | 2 | | Rewrite `lib/state.js` against `better-sqlite3`, same interface; rewrite `test/state.test.js` against `:memory:`. Existing `state/*.json` ignored on first boot — at most one in-flight captain re-texts. |
+| 2.4 | `conversation_state` in SQLite | 2 | ✓ | Session 7 (PR #12). `lib/state.js` rewritten against `better-sqlite3` — sync API, `(db, chatId, data)`, upsert via `INSERT … ON CONFLICT(chat_id) DO UPDATE`. `test/state.test.js` rewritten against `openDb(':memory:')`. 40/40 tests green. |
 | 2.5 | Async Sheet sync job | 3 | | `lib/sheets.js`: `google-spreadsheet` v4 + service-account auth, reads `trips.findUnsynced()`, appends rows, marks `sheet_synced_at`. Test/prod via `SHEETS_WORKSHEET_TITLE` env var (same file, different tab). |
 
 ---
@@ -118,11 +118,11 @@ working webhook URL. Brewboat target: June 1, 2026 beta.
 | Phase | Pts | Status |
 |-------|-----|--------|
 | 1 — Extract from helm | 9 | ✓ shipped |
-| 2 — Storage pivot (2.4–2.5 remaining) | 5 | in progress |
+| 2 — Storage pivot (2.5 remaining) | 3 | in progress |
 | 3 — V1 capture features | 22 | not started |
 | 4 — Digest + E2E | 6 | not started |
 | 5 — Production deploy | 9 | not started |
-| **V1 total remaining** | **42** | |
+| **V1 total remaining** | **40** | |
 
 22 days to June 1 (from 2026-05-10). At ~3 sessions/week, ~9 sessions of
 headroom against ~8 sessions of work at 6 pt/session. **No slack.** If anything
@@ -139,10 +139,10 @@ Live in this repo (`docs/DECISIONS.md`):
 - DEC-004 — Twilio toll-free (superseded for V1 by DEC-011; provisions retained for SMS-as-concurrent-channel)
 - DEC-007 — Single Node service for Scribbler + Purser
 - DEC-008 — Anthropic SDK direct, Haiku/Sonnet split
-- DEC-009 — Google Sheets via service account (**amendment pending** — async sync, not on Purser hot path)
-- DEC-010 — Per-captain state as flat JSON (**amendment pending** — moves to SQLite alongside trips)
+- DEC-009 — Google Sheets via service account (amended by DEC-012 — async sync, not on Purser hot path)
+- DEC-010 — Per-captain state as flat JSON (**superseded** by DEC-012)
 - DEC-011 — Telegram Bot API as primary V1 channel; SMS deferred
-- DEC-012 — **pending** — SQLite as source of truth for trips, drills, conversation state
+- DEC-012 — SQLite as source of truth for trips, drills, conversation state
 
 Live in `mobiustripper42/helm` (`docs/DECISIONS.md`):
 

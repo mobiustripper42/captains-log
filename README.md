@@ -2,7 +2,9 @@
 
 SMS-based trip logging for Brewboat captains. Captains text free-form trip summaries to a dedicated Twilio number; the system parses, asks for confirmation, and writes a row to the existing Brewboat Google Sheet.
 
-Spec: `docs/SPEC.md`. Decisions: `docs/DECISIONS.md` — DEC-004 (Twilio toll-free), DEC-007 (single Node service), DEC-008 (Anthropic SDK direct, Haiku/Sonnet split), DEC-009 (Sheets via service account), DEC-010 (flat per-captain state JSON). DEC numbering preserved from helm for cross-repo traceability.
+Spec: `docs/SPEC.md`. Decisions: `docs/DECISIONS.md` — DEC-004 (Twilio toll-free, deferred), DEC-007 (single Node service), DEC-008 (Anthropic SDK direct, Haiku/Sonnet split), DEC-009 (Sheets via service account, amended), DEC-010 (per-captain state JSON, superseded), DEC-011 (Telegram as primary channel), DEC-012 (SQLite as source of truth). DEC numbering preserved from helm for cross-repo traceability.
+
+> **Note (2026-05):** This README still describes the pre-Telegram-pivot SMS flow in many places. Storage references have been updated to DEC-012 (SQLite). The SMS → Telegram retrofit of the rest of the README is a separate cleanup task.
 
 ## Architecture
 
@@ -16,9 +18,10 @@ SMS → Twilio → POST /webhook/sms → Scribbler.append() → ack TwiML
                                          │
                                          ├─ parse (Haiku 4.5)
                                          ├─ outbound SMS confirm (Twilio REST)
-                                         ├─ on Y → write Sheet row
-                                         └─ persist state to state/<phone>.json
+                                         ├─ on Y → SQLite tx: insert trip + clear state (DEC-012)
+                                         └─ persist state to conversation_state row (DEC-012)
 
+Async cron → Purser.syncSheet() → append trips.findUnsynced() rows → mark synced
 22:00 ET cron → Purser.digest() → Sonnet 4.6 → email to eric@stoffer.net
 ```
 
@@ -32,10 +35,9 @@ captainslog/
 │   ├── captains.json    # phone → captain lookup
 │   ├── boats.json       # boat registry + aliases
 │   └── routes.json      # route registry + aliases
-├── raw/YYYY-MM-DD.log   # append-only SMS archive (matches Scrawl format, DEC-003)
-├── structured/YYYY-MM-DD.json   # parsed entries (pre/post Sheet write)
-├── state/<phone>.json   # per-captain conversation state (DEC-010, gitignored)
-├── digest/YYYY-MM-DD.html       # nightly digest snapshots
+├── data/captainslog.db          # SQLite source of truth (DEC-012, gitignored)
+├── raw/YYYY-MM-DD.log           # append-only message archive (DEC-003, gitignored)
+├── digest/YYYY-MM-DD.html       # nightly digest snapshots (gitignored)
 └── .env                 # secrets (gitignored — see .env.example)
 ```
 
@@ -88,10 +90,10 @@ tail -f raw/$(date -u +%F).log
 
 ## Storage
 
-- **Raw SMS log.** `raw/YYYY-MM-DD.log`, plaintext, pipe-separated, one line per inbound message. Matches Scrawl format (DEC-003). Git-versioned.
-- **Structured entries.** `structured/YYYY-MM-DD.json`, one file per ET day, array of parsed-and-filed entries. Git-versioned.
-- **Digest snapshots.** `digest/YYYY-MM-DD.html`, one file per night, the same HTML body emailed to Eric. Git-versioned.
-- **Conversation state.** `state/<phone>.json`, atomic-rename writes. Per DEC-010. Gitignored — recoverable from raw log + sheet.
+- **SQLite source of truth.** `data/captainslog.db` (path overridable via `CAPTAINSLOG_DB_PATH`). Trips, drills, conversation state, crew. Per DEC-012. Gitignored — lives on the server filesystem.
+- **Raw message log.** `raw/YYYY-MM-DD.log`, plaintext, pipe-separated, one line per inbound message. Matches Scrawl format (DEC-003). Gitignored.
+- **Digest snapshots.** `digest/YYYY-MM-DD.html`, one file per night, the same HTML body emailed to Eric. Gitignored.
+- **Google Sheet.** Async second copy, written by the nightly sync job (DEC-009 as amended by DEC-012).
 
 ## Models
 
