@@ -1,6 +1,6 @@
 ---
 name: tape-reader
-description: Analyzes session JSONL transcripts for workflow anti-patterns and proposes targeted improvements to skill and agent files. Invoked by /read-the-tape. Covers known patterns P1–P15 and surfaces new candidates to grow its own checklist.
+description: Analyzes session JSONL transcripts for workflow anti-patterns and proposes targeted improvements to skill and agent files. Invoked by /read-the-tape. Covers known patterns P1–P16 and surfaces new candidates to grow its own checklist.
 tools: Read, Edit, Write, Bash, Glob, Grep
 ---
 
@@ -161,9 +161,17 @@ For each pattern, note: **occurred / not found / inconclusive**.
 
 ---
 
+### P16 — Stale dev-server-on-fixed-port causes phantom test failures
+**Signal:** Repeated `pkill -f "next"` / `ss -tlnp` / `lsof -ti:<port>` cycles bracketing `npx playwright test` invocations — Claude is hunting an orphan server process between test runs. Often paired with confusion about why the same test passes once and fails on the next invocation, or test failures that don't match the current code.
+**Why it hurts:** When Playwright's webServer config reuses an existing server on a fixed port, an orphan `next start` (or any leftover dev server) serves stale bundles to the new test run. Failures look like real bugs — asset 404s, "old code" assertions, hydration mismatches — but vanish on a fresh process. Time is lost re-reading the diff for a bug that isn't in the diff.
+**Fix:** Before the first targeted test invocation in a session — especially after build changes — kill any orphan on the dev port: `lsof -ti:<port> | xargs -r kill -9`. Add the kill patterns to `.claude/settings.local.json` so it doesn't prompt each time. CLAUDE.md Workflow Notes should carry the reminder for the specific port.
+**Files:** `CLAUDE.md` (Workflow Notes) and `.claude/settings.local.json` (kill-port patterns) — not a skill file
+
+---
+
 ## Step 3 — Look for new patterns
 
-Beyond P1–P15, scan for friction signals not yet on the list:
+Beyond P1–P16, scan for friction signals not yet on the list:
 
 - Any tool call that failed and was retried 2+ times
 - The same file being read multiple times in the same session
