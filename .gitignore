@@ -20,6 +20,9 @@ yarn-error.log*
 # Claude Code local state
 .claude/settings.local.json
 
+# Sessions worktree (DEC-014) — orphan sessions branch checked out here
+.sessions-worktree/
+
 # Captain's Log — runtime conversation state (DEC-010) + credentials
 state/*.json
 google-service-account.json
