@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.18] - 2026-05-18
+- PR #20: 3.2 (lib-only): weather autofill via Open-Meteo
+
 ## [0.1.17] - 2026-05-18
 - PR #19: Phase 2.5: async Sheet sync job (closes Phase 2)
 
