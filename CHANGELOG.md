@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.12] - 2026-05-18
+- PR #14: auto-sync downstream — 2026-05-14
+
 ## [0.1.11] - 2026-05-18
 - PR #13: read-the-tape session 7: handshake + multi-PR safety in kill-this/its-dead
 
