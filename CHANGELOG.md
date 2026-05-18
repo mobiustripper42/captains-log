@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.5] - 2026-05-18
+- PR #3: auto-sync downstream — 2026-05-10
+
 ## [0.1.4] - 2026-05-13
 - PR #12: Phase 2.4 — `conversation_state` in SQLite (filesystem JSON store removed)
 - PR #11: Docs — drop ngrok references
