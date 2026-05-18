@@ -67,10 +67,11 @@ Sheet write was implemented — `filed_to_sheet: false` was hardcoded in
 **Goal:** Open-trip workflow, weather autofill, drill capture, and `/feedback`.
 The substantive V1 feature work.
 
-**Total:** 22 pts.
+**Total:** 25 pts.
 
 | # | Task | Effort | Notes |
 |---|------|--------|-------|
+| 3.0a | Scribbler / Purser reply polish via live exercise | 3 | Open-ended captain-facing message tuning. Fire test messages at the bot, iterate on `lib/scribbler.js` `UNKNOWN_REPLY`, `lib/purser.js` `formatConfirmation` strings, parse-failure replies, `UNKNOWN_BOAT` message, etc. Not unit-testable in advance — runs on mill-dev against real Telegram. Cap at one session. |
 | 3.1 | Open-trip workflow (split for honesty) | **8** | Total — see 3.1a + 3.1b. Captain texts at trip start with available info, then at end to complete. |
 | 3.1a | Open-trip structural — status transitions, `findActive`, Purser routing, mocked-parse tests | 3 | `open` → `awaiting_confirmation` → `confirmed`. Mock-testable, bounded. |
 | 3.1b | Open-trip prompt tuning — "starting / update / done" sub-intent + multi-open arbitration | 5 | Iteration on real captain text. Not unit-testable in advance. Happens once 3.1a is in and traffic flows on mill-dev. |
@@ -119,10 +120,10 @@ working webhook URL. Brewboat target: June 1, 2026 beta.
 |-------|-----|--------|
 | 1 — Extract from helm | 9 | ✓ shipped |
 | 2 — Storage pivot | 26 | ✓ shipped |
-| 3 — V1 capture features (3.2 done) | 19 | in progress |
+| 3 — V1 capture features (3.2 done) | 22 | in progress |
 | 4 — Digest + E2E | 6 | not started |
 | 5 — Production deploy | 9 | not started |
-| **V1 total remaining** | **34** | |
+| **V1 total remaining** | **37** | |
 
 22 days to June 1 (from 2026-05-10). At ~3 sessions/week, ~9 sessions of
 headroom against ~8 sessions of work at 6 pt/session. **No slack.** If anything
