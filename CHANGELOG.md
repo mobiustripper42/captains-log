@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.21] - 2026-05-18
+- PR #23: docs: bee-grace → mill-dev (host rename)
+
 ## [0.1.20] - 2026-05-18
 - PR #22: test: scribbler intake coverage + CAPTAINSLOG_RAW_DIR env override
 

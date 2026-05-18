@@ -1,6 +1,6 @@
 {
   "name": "captainslog",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "Telegram-based trip logging for Brewboat captains. Scribbler (intake) + Purser (parse/confirm/file/digest) in one Express service.",
   "private": true,
   "type": "module",
