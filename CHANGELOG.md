@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.6] - 2026-05-18
+- PR #4: Replan — SQLite pivot: reshape PROJECT_PLAN.md
+
 ## [0.1.5] - 2026-05-18
 - PR #3: auto-sync downstream — 2026-05-10
 
