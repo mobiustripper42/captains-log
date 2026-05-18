@@ -1,12 +1,17 @@
+// Set BEFORE imports so weather.js sees it from the first call.
+process.env.CAPTAINSLOG_NO_WEATHER = '1';
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Y_PATTERN, formatConfirmation, fileTrip } from '../lib/purser.js';
 import { openDb } from '../lib/db.js';
 import { migrate } from '../lib/migrate.js';
-import { _resetCacheForTests } from '../lib/rosters.js';
+import { _resetCacheForTests as resetRosters } from '../lib/rosters.js';
+import { _resetCacheForTests as resetWeather } from '../lib/weather.js';
 
 function freshDb() {
-  _resetCacheForTests();
+  resetRosters();
+  resetWeather();
   const db = openDb(':memory:');
   migrate(db);
   return db;
@@ -147,7 +152,7 @@ test('fileTrip throws UNKNOWN_BOAT when parsed.boat is empty', async () => {
   );
 });
 
-test('fileTrip succeeds with a known boat slug', async () => {
+test('fileTrip succeeds with a known boat slug; CAPTAINSLOG_NO_WEATHER skips the lookup', async () => {
   const db = freshDb();
   const { id } = await fileTrip({
     db,
@@ -156,7 +161,10 @@ test('fileTrip succeeds with a known boat slug', async () => {
     state: stateWith({ boat: 'Brewboat' }),
     source: 'telegram',
   });
-  const row = db.prepare('SELECT boat_slug, status FROM trips WHERE id = ?').get(id);
+  const row = db.prepare('SELECT boat_slug, status, weather_summary FROM trips WHERE id = ?').get(id);
   assert.equal(row.boat_slug, 'brewboat');
   assert.equal(row.status, 'confirmed');
+  assert.equal(row.weather_summary, null);
 });
+// (Weather happy-path with a fake fetch is covered in test/weather.test.js;
+// not duplicated here so we don't have to toggle env vars mid-suite.)
