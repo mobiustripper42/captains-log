@@ -49,11 +49,11 @@ test('formatRow maps trip → Brewboat Form schema', async () => {
   assert.equal(row.Equipment, 'Brewboat');
   assert.equal(row.Captain, 'Eric');
   assert.equal(row['First Mate'], 'Mike');
-  assert.equal(row['Number of Passengers'], 30);
-  assert.equal(row['Weather Forecast/Actual'], 'sunny, calm');
-  assert.equal(row['Destinations/Stops'], 'Cuyahoga River');
+  assert.equal(row['Number Of Passengers'], 30);
+  assert.equal(row['Weather Forecast / Actual Conditions'], 'sunny, calm');
+  assert.equal(row['Destinations and/or Stops were made at:'], 'Cuyahoga River');
   assert.equal(row['Vessel Concerns and Captain Notes'], 'good day');
-  assert.equal(row['Emergency Drills (monthly checkbox)'], '');
+  assert.equal(row['Emergency Drills (completed 1st trip of month)?'], '');
 });
 
 test('formatRow includes "Yes" when emergency_drills is true', async () => {
@@ -63,7 +63,7 @@ test('formatRow includes "Yes" when emergency_drills is true', async () => {
   });
   const trip = trips.findById(db, id);
   const row = await formatRow(trip);
-  assert.equal(row['Emergency Drills (monthly checkbox)'], 'Yes');
+  assert.equal(row['Emergency Drills (completed 1st trip of month)?'], 'Yes');
 });
 
 test('formatRow merges issues into the notes column', async () => {
@@ -87,8 +87,8 @@ test('formatRow tolerates missing parse_json and null route', async () => {
   const { id } = seedTrip(db, { parse_json: null, route_slug: null });
   const trip = trips.findById(db, id);
   const row = await formatRow(trip);
-  assert.equal(row['Destinations/Stops'], '');
-  assert.equal(row['Emergency Drills (monthly checkbox)'], '');
+  assert.equal(row['Destinations and/or Stops were made at:'], '');
+  assert.equal(row['Emergency Drills (completed 1st trip of month)?'], '');
 });
 
 test('formatRow falls back to boat_slug when slug is not in roster', async () => {
