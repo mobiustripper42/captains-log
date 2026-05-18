@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.9] - 2026-05-18
+- PR #9: auto-sync downstream — 2026-05-13
+
 ## [0.1.8] - 2026-05-18
 - PR #8: auto-sync downstream — 2026-05-12
 
