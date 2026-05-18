@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.24] - 2026-05-18
+- PR #26: fix: pass insert:true to addRow so trips append instead of overwriting
+
 ## [0.1.23] - 2026-05-18
 - PR #25: docs: expand README "Run" section
 
