@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.22] - 2026-05-18
+- PR #24: 3.2 followup: wire getWeatherSummary into Purser.fileTrip
+
 ## [0.1.21] - 2026-05-18
 - PR #23: docs: bee-grace → mill-dev (host rename)
 
