@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.15] - 2026-05-18
+- PR #17: docs: promote DEC-012, supersede DEC-010, scrub storage refs
+
 ## [0.1.14] - 2026-05-18
 - PR #16: auto-sync downstream — 2026-05-17
 
