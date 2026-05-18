@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.11] - 2026-05-18
+- PR #13: read-the-tape session 7: handshake + multi-PR safety in kill-this/its-dead
+
 ## [0.1.10] - 2026-05-18
 - PR #10: Recover session 4 log update (post-merge code-review notes)
 
