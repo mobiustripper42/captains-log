@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.26] - 2026-05-18
+- PR #28: Add task 3.0a — Scribbler/Purser reply polish
+
 ## [0.1.25] - 2026-05-18
 - PR #27: fix: match Brewboat Sheet header names exactly in formatRow
 
