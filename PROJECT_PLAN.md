@@ -14,9 +14,15 @@ checking a real Sheet row) are baked into every task estimate.
 Estimates come from collaborative poker (both Spink and Claude throw a number,
 discuss when they differ, settle together). Solo estimates aren't poker.
 
-**Velocity:** 3 sessions complete, 18 pts shipped (3 + 2 + 13). Sample is too
-small and uneven to project from — treat as informational. Update after the
-next 3 sessions.
+**Velocity:**
+
+| Phase | Sessions | Points | Wall (h) | Dev (h) | Review (h) | hrs/pt (dev) |
+|-------|----------|--------|----------|---------|------------|--------------|
+| 2     | 6        | 29     | 35.50    | 7.33    | 0.58       | 0.25         |
+
+Dev/pt velocity above is flattering — Phase 2 included a 20-hour overnight
+planning session (session 4, DEC-012 pivot) that ships as "breaks." Honest
+forecast number is wall_clock/pt ≈ 1.22 h/pt. See `docs/RETROSPECTIVES.md`.
 
 ---
 
