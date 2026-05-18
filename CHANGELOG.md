@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.16] - 2026-05-18
+- PR #18: 2.3 carryovers: crew TOCTOU + boat-slug fallback
+
 ## [0.1.15] - 2026-05-18
 - PR #17: docs: promote DEC-012, supersede DEC-010, scrub storage refs
 
