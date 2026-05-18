@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.10] - 2026-05-18
+- PR #10: Recover session 4 log update (post-merge code-review notes)
+
 ## [0.1.9] - 2026-05-18
 - PR #9: auto-sync downstream — 2026-05-13
 
