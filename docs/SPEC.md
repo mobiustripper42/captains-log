@@ -3,6 +3,13 @@
 **Date: April 19, 2026** (extracted from helm into this repo on May 7, 2026)
 **Target: V1 deployed for 2026 season (May–October), beta by end of May**
 
+> **Live state notes (2026-05+):** This spec is the original planning doc. Two material things have changed since:
+>
+> 1. **Telegram, not Twilio toll-free.** SMS deferred per DEC-011. The Twilio / toll-free verification / SMS-cost sections below are retained for context but no longer describe the V1 path.
+> 2. **SQLite is the source of truth, not the Google Sheet.** Per DEC-012 (with DEC-010 superseded). The Sheet becomes an async write target via a nightly sync job (DEC-009 as amended). The "Structured entry (pre-Sheet)" JSON schema below is a deleted artifact (`lib/structured-log.js`) — the live shape is the `trips` table in `lib/migrations/001_init.sql`.
+>
+> `docs/DECISIONS.md` is the authoritative current state. `PROJECT_PLAN.md` is the live execution plan.
+
 ---
 
 ## What This Is
@@ -64,46 +71,52 @@ Scribbler: append raw message to ~/captains-log/raw/YYYY-MM-DD.log
 Auto-reply: "Got it, [Captain]. Parsing now."
      │
      ▼ (within ~30s)
-Purser: parse raw text → structured fields
+Purser: parse raw text → structured fields (Haiku 4.5)
      │
      ▼
-Captain confirmation: "Blue Boat, 4 trips, 49 pax, Cuyahoga, VHF issue. Reply Y to file."
+Captain confirmation: "Brewboat, 4 trips, 49 pax, Cuyahoga, VHF issue. Reply Y to file."
      │
      ▼
 Captain replies Y / correction
      │
      ▼ (if correction, re-parse and re-confirm)
-Purser writes row to Google Sheet
+Purser writes row to SQLite `trips` table (DEC-012) inside a tx
      │
      ▼
-Eric gets nightly digest of all entries filed that day
+Async cron (every ~5 min) appends unsynced trips to the Google Sheet (DEC-009 amended)
+     │
+     ▼
+Eric gets nightly digest of all entries filed that day (Sonnet 4.6, email per helm:DEC-005)
 ```
 
 ### Directory layout
 
 ```
 ~/captains-log/
+├── data/
+│   └── captainslog.db     # SQLite source of truth (DEC-012, gitignored)
 ├── raw/
 │   ├── 2026-06-01.log
 │   ├── 2026-06-02.log
-│   └── ...
-├── structured/
-│   ├── 2026-06-01.json    # parsed entries, pre-sheet
-│   └── ...
+│   └── ...                # append-only message archive (gitignored)
 ├── config/
 │   ├── captains.json
 │   ├── boats.json
 │   └── routes.json
 ├── digest/
-│   └── 2026-06-01.html    # nightly digest sent to Eric
+│   └── 2026-06-01.html    # nightly digest snapshots (gitignored)
 └── .git/
 ```
+
+The pre-pivot `structured/YYYY-MM-DD.json` files (written by the deleted `lib/structured-log.js`) are gone. The `trips` and `drills` tables in SQLite carry the same data with a relational shape.
 
 Lives at `github.com/mobiustripper42/captains-log` (private). Extracted from `helm/captainslog/` on 2026-05-07.
 
 ---
 
-## Provider Choice: Twilio (toll-free)
+## Provider Choice: Twilio (toll-free) — historical, superseded by DEC-011
+
+> **Historical.** V1 uses Telegram per DEC-011. The Twilio toll-free path described here is retained as the SMS provisioning plan for when SMS is added as a concurrent channel (see DEC-011's "Supersedes" clause). All cost / verification details below describe the SMS scenario, not V1.
 
 **Decision recorded in DEC-004 (2026-04-20, Session 6):** Twilio toll-free number with Twilio's free toll-free verification. A2P 10DLC deferred unless volume grows significantly.
 
@@ -197,24 +210,20 @@ Beta on grace. Production on cloud — not optional. Grace is at home; home lose
 
 ### `captains.json`
 
+Keyed by Telegram chat_id (string) per DEC-011. When SMS is added later, phone-keyed entries will live alongside chat_id entries — `source` on each log row will disambiguate.
+
 ```json
 {
-  "+12165551234": {
+  "123456789": {
     "name": "Drew",
     "full_name": "Drew Lastname",
     "role": "captain",
     "active": true,
     "notes": "Lead captain, USCG master"
   },
-  "+12165555678": {
+  "234567890": {
     "name": "Brendan",
     "full_name": "Brendan Lastname",
-    "role": "captain",
-    "active": true
-  },
-  "+12165559012": {
-    "name": "Brandon",
-    "full_name": "Brandon Lastname",
     "role": "captain",
     "active": true
   }
@@ -266,43 +275,13 @@ Plain text, pipe-separated, matches Scrawl convention:
 2026-06-01T23:14:00Z | +12165551234 | Drew | Trip started 1pm on Blue Boat, 4 cruises, 12 pax each except 13 on last, ended 9:30, Cuyahoga, VHF cutting out on 16
 ```
 
-### Structured entry (pre-Sheet)
+### Trip row (SQLite — DEC-012)
 
-JSON, one file per day, matches Google Sheet columns:
+> **Replaced.** The original "Structured entry (pre-Sheet)" JSON-per-day file was written by `lib/structured-log.js`, which was deleted in 2.3. Trips now live in the SQLite `trips` table. Authoritative schema: `lib/migrations/001_init.sql` (plus `002_photo_urls_check.sql`).
 
-```json
-{
-  "id": "2026-06-01-003",
-  "entry_number": 3,
-  "received_at": "2026-06-01T23:14:00Z",
-  "captain": "Drew",
-  "captain_phone": "+12165551234",
-  "boat": "Blue Boat",
-  "boat_hull": "OH-YYYY-YY",
-  "route": "Cuyahoga River",
-  "trip_start": "2026-06-01T17:00:00Z",
-  "trip_end": "2026-06-02T01:30:00Z",
-  "trip_count": 4,
-  "total_passengers": 49,
-  "passengers_by_trip": [12, 12, 12, 13],
-  "issues": [
-    {
-      "category": "equipment",
-      "subcategory": "VHF",
-      "description": "VHF cutting out on channel 16",
-      "severity": "medium"
-    }
-  ],
-  "notes": null,
-  "raw_message": "Trip started 1pm on Blue Boat...",
-  "confirmed_by_captain": true,
-  "confirmed_at": "2026-06-01T23:15:22Z",
-  "filed_to_sheet": true,
-  "sheet_row_id": "abc123"
-}
-```
+Relevant columns: `status`, `captain_chat_id`, `captain_name`, `boat_slug`, `route_slug`, `trip_date`, `start_time`, `end_time`, `passenger_count`, `first_mate_text`, `first_mate_crew_id`, `notes`, `weather_summary`, `parse_json` (raw + parsed + correction count), `sheet_synced_at`, `confirmed_at`. `status` transitions: `open` → `awaiting_confirmation` → `confirmed` (or `cancelled`).
 
-**Final schema depends on the actual Google Form columns.** Eric will provide. The above is illustrative.
+The async sync job (2.5, `lib/sheets.js`) reads `trips.findUnsynced()`, formats each row into the Brewboat Google Form schema, appends to the Sheet, and stamps `sheet_synced_at`. Sheet column mapping lives in `lib/sheets.js:formatRow`.
 
 ---
 
@@ -482,7 +461,9 @@ Key calls made during the first planning session — these override or clarify t
 
 ---
 
-## Cost Summary
+## Cost Summary — historical (SMS scenario)
+
+> **Historical.** This table sizes the SMS scenario. V1 runs on Telegram (DEC-011) — the $14 SMS line and the $24 toll-free number line both drop to $0. Anthropic + DigitalOcean + Sheets API costs are unchanged.
 
 Based on 2025 actuals (258 log entries over May–October) × ~7 SMS/entry realistic average. Twilio toll-free at ~$0.0075/msg.
 
