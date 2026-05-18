@@ -75,18 +75,18 @@ The substantive V1 feature work.
 
 **Total:** 25 pts.
 
-| # | Task | Effort | Notes |
-|---|------|--------|-------|
-| 3.0a | Scribbler / Purser reply polish via live exercise | 3 | Open-ended captain-facing message tuning. Fire test messages at the bot, iterate on `lib/scribbler.js` `UNKNOWN_REPLY`, `lib/purser.js` `formatConfirmation` strings, parse-failure replies, `UNKNOWN_BOAT` message, etc. Not unit-testable in advance — runs on mill-dev against real Telegram. Cap at one session. |
-| 3.1 | Open-trip workflow (split for honesty) | **8** | Total — see 3.1a + 3.1b. Captain texts at trip start with available info, then at end to complete. |
-| 3.1a | Open-trip structural — status transitions, `findActive`, Purser routing, mocked-parse tests | 3 | `open` → `awaiting_confirmation` → `confirmed`. Mock-testable, bounded. |
-| 3.1b | Open-trip prompt tuning — "starting / update / done" sub-intent + multi-open arbitration | 5 | Iteration on real captain text. Not unit-testable in advance. Happens once 3.1a is in and traffic flows on mill-dev. |
-| 3.2 ✓ | Weather autofill via Open-Meteo | 3 | Session 8 (PRs #20 + #24). `lib/weather.js` Open-Meteo current-block fetch (keyless), WMO-code condition labels, 8-point compass, in-memory same-day cache. Lat/lon in `config/routes.json` + `config/boats.json` (home dock fallback). Plumbed into `fileTrip` alongside crew lookup. `CAPTAINSLOG_NO_WEATHER=1` escape hatch. |
-| 3.3 | Intent classification (trip / drill / unknown) | 3 | Extend Haiku prompt to return `intent` discriminator. Purser dispatch on intent. "I didn't understand" reply for `unknown`. `/feedback` and `/file` slash-commands bypass Haiku entirely. |
-| 3.4 | Drill capture (split for honesty) | **5** | Total — see 3.4a + 3.4b. NL capture only — no reminders / triage in V1. |
-| 3.4a | Drill structural — `lib/drills.js` insert, Purser drill confirm flow, mocked-parse tests | 2 | Reuses `lib/crew.js` resolver from 2.3 for `crew_present_text`. |
-| 3.4b | Drill prompt tuning — `drill_type` extraction + crew name extraction on real captain text | 3 | Same dynamic as 3.1b. |
-| 3.5 | `/feedback` + `/file` slash commands | 3 | `/feedback <observation>` → Haiku drafts a GH issue body → store as `pending`, surface draft. `/file` → file via `gh` CLI/REST → mark `filed`. Spink-only access check. Cancel path. |
+| # | Task | Effort | Status | Notes |
+|---|------|--------|--------|-------|
+| 3.0a | Scribbler / Purser reply polish via live exercise | 3 | [#29](https://github.com/mobiustripper42/captains-log/issues/29) | Open-ended captain-facing message tuning. Fire test messages at the bot, iterate on `lib/scribbler.js` `UNKNOWN_REPLY`, `lib/purser.js` `formatConfirmation` strings, parse-failure replies, `UNKNOWN_BOAT` message, etc. Not unit-testable in advance — runs on mill-dev against real Telegram. Cap at one session. |
+| 3.1 | Open-trip workflow (split for honesty) | **8** | — | Total — see 3.1a + 3.1b. Captain texts at trip start with available info, then at end to complete. |
+| 3.1a | Open-trip structural — status transitions, `findActive`, Purser routing, mocked-parse tests | 3 | [#30](https://github.com/mobiustripper42/captains-log/issues/30) | `open` → `awaiting_confirmation` → `confirmed`. Mock-testable, bounded. |
+| 3.1b | Open-trip prompt tuning — "starting / update / done" sub-intent + multi-open arbitration | 5 | [#31](https://github.com/mobiustripper42/captains-log/issues/31) | Iteration on real captain text. Not unit-testable in advance. Happens once 3.1a is in and traffic flows on mill-dev. |
+| 3.2 | Weather autofill via Open-Meteo | 3 | ✓ | Session 8 (PRs #20 + #24). `lib/weather.js` Open-Meteo current-block fetch (keyless), WMO-code condition labels, 8-point compass, in-memory same-day cache. Lat/lon in `config/routes.json` + `config/boats.json` (home dock fallback). Plumbed into `fileTrip` alongside crew lookup. `CAPTAINSLOG_NO_WEATHER=1` escape hatch. |
+| 3.3 | Intent classification (trip / drill / unknown) | 3 | [#32](https://github.com/mobiustripper42/captains-log/issues/32) | Extend Haiku prompt to return `intent` discriminator. Purser dispatch on intent. "I didn't understand" reply for `unknown`. `/feedback` and `/file` slash-commands bypass Haiku entirely. |
+| 3.4 | Drill capture (split for honesty) | **5** | — | Total — see 3.4a + 3.4b. NL capture only — no reminders / triage in V1. |
+| 3.4a | Drill structural — `lib/drills.js` insert, Purser drill confirm flow, mocked-parse tests | 2 | [#33](https://github.com/mobiustripper42/captains-log/issues/33) | Reuses `lib/crew.js` resolver from 2.3 for `crew_present_text`. |
+| 3.4b | Drill prompt tuning — `drill_type` extraction + crew name extraction on real captain text | 3 | [#34](https://github.com/mobiustripper42/captains-log/issues/34) | Same dynamic as 3.1b. |
+| 3.5 | `/feedback` + `/file` slash commands | 3 | [#35](https://github.com/mobiustripper42/captains-log/issues/35) | `/feedback <observation>` → Haiku drafts a GH issue body → store as `pending`, surface draft. `/file` → file via `gh` CLI/REST → mark `filed`. Spink-only access check. Cancel path. |
 
 ---
 
