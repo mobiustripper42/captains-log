@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.19] - 2026-05-18
+- PR #21: docs: SPEC.md retrofit for DEC-011 + DEC-012
+
 ## [0.1.18] - 2026-05-18
 - PR #20: 3.2 (lib-only): weather autofill via Open-Meteo
 
