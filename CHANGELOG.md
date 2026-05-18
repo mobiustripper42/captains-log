@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.20] - 2026-05-18
+- PR #22: test: scribbler intake coverage + CAPTAINSLOG_RAW_DIR env override
+
 ## [0.1.19] - 2026-05-18
 - PR #21: docs: SPEC.md retrofit for DEC-011 + DEC-012
 
