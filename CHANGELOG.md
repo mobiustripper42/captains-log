@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.23] - 2026-05-18
+- PR #25: docs: expand README "Run" section
+
 ## [0.1.22] - 2026-05-18
 - PR #24: 3.2 followup: wire getWeatherSummary into Purser.fileTrip
 
