@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.0] - 2026-05-18 — Phase 2
+- 29 pts shipped across 6 sessions (0.25 hrs/pt dev)
+- See `docs/RETROSPECTIVES.md` for the full retro
+
 ## [0.1.26] - 2026-05-18
 - PR #28: Add task 3.0a — Scribbler/Purser reply polish
 
