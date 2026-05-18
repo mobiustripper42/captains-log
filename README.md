@@ -80,12 +80,78 @@ You should see the captain logged in `raw/$(date -u +%F).log` and a TwiML "Got i
 
 ## Run
 
-```bash
-# foreground (dev)
-node bin/server.js
+### Start
 
-# tail today's raw intake
+```bash
+cd ~/captains-log && node bin/server.js
+```
+
+Expect on boot:
+
+```
+[captainslog] listening on :3000 (vX.Y.Z)
+[captainslog] Scribbler + Purser wired on /webhook/telegram.
+[captainslog] Sheet sync cron: */5 * * * *
+```
+
+`Ctrl-C` to stop.
+
+### Detached (background) with log file
+
+```bash
+cd ~/captains-log
+nohup node bin/server.js > server.log 2>&1 &
+tail -f server.log              # Ctrl-C to detach; server keeps running
+pkill -f "node bin/server.js"   # to stop it later
+```
+
+### Health check
+
+From mill-dev (or any host that can reach `localhost:3000`):
+
+```bash
+curl http://localhost:3000/health
+# {"status":"ok","service":"captainslog","version":"X.Y.Z"}
+```
+
+From elsewhere on the tailnet (or the public Funnel URL):
+
+```bash
+curl https://mill-dev.tail7e2bfd.ts.net/health
+```
+
+### Useful one-liners
+
+```bash
+# Tail today's raw intake (every inbound message, captain or unknown)
 tail -f raw/$(date -u +%F).log
+
+# Most recent trips and their sync status
+sqlite3 data/captains-log.db \
+  "SELECT id, status, captain_name, boat_slug, sheet_synced_at FROM trips ORDER BY id DESC LIMIT 10"
+
+# Confirmed-but-unsynced backlog (what the next cron tick will push)
+sqlite3 data/captains-log.db \
+  "SELECT id, confirmed_at FROM trips WHERE status='confirmed' AND sheet_synced_at IS NULL"
+
+# Watch Sheet sync activity (only logs when there's pending work)
+grep "^\[sheets\]" server.log
+```
+
+### Re-register the Telegram webhook (after token / URL change)
+
+```bash
+set -a; source ~/captains-log/.env; set +a
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  --data-urlencode "url=https://mill-dev.tail7e2bfd.ts.net/webhook/telegram" \
+  --data-urlencode "secret_token=${TELEGRAM_SECRET_TOKEN}"
+echo
+```
+
+Verify with:
+
+```bash
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" | python3 -m json.tool
 ```
 
 ## Storage
