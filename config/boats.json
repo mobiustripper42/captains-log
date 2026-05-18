@@ -4,6 +4,8 @@
     "hull_id": "REPLACE_ME",
     "uscg_number": "REPLACE_ME",
     "capacity": 20,
+    "home_lat": 41.4993,
+    "home_lon": -81.6944,
     "aliases": ["brew", "the brew", "brewboat", "the boat"]
   }
 }
