@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.17] - 2026-05-18
+- PR #19: Phase 2.5: async Sheet sync job (closes Phase 2)
+
 ## [0.1.16] - 2026-05-18
 - PR #18: 2.3 carryovers: crew TOCTOU + boat-slug fallback
 
