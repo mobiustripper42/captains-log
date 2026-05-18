@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.25] - 2026-05-18
+- PR #27: fix: match Brewboat Sheet header names exactly in formatRow
+
 ## [0.1.24] - 2026-05-18
 - PR #26: fix: pass insert:true to addRow so trips append instead of overwriting
 
