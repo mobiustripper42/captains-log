@@ -50,7 +50,7 @@ atomic-tx confirmation + state changes. Pivot triggered Session 4 before any
 Sheet write was implemented — `filed_to_sheet: false` was hardcoded in
 `lib/purser.js:101`. Decision pending in `DEC-012`.
 
-**Total remaining:** 3 pts (2.1, 2.2, 2.3, 2.4 shipped).
+**Total:** 26 pts (all shipped). Closed in Session 8.
 
 | # | Task | Effort | Status | Notes |
 |---|------|--------|--------|-------|
@@ -58,7 +58,7 @@ Sheet write was implemented — `filed_to_sheet: false` was hardcoded in
 | 2.2 | SQLite + schema + driver + migrations on startup | 3 | ✓ | `lib/db.js` (driver, WAL, tx helper) + `lib/migrate.js` + `lib/migrations/001_init.sql` (8 tables — V1 + V2 baked) + startup hook + tests. |
 | 2.3 | Trip CRUD + Purser cutover + crew lookup | 5 | ✓ | `lib/trips.js` (create/findById/findUnsynced/markSynced/update/remove), `config/crew.json` + `lib/crew.js` resolver (case-insensitive + alias, lazy crew-row create), `lib/rosters.js` (shared boats/routes/crew loader + slug helpers), `lib/purser.js` cutover (replace `filed_to_sheet: false` block with SQLite tx, resolve first-mate before write), `lib/migrations/002_photo_urls_check.sql` (table-rebuild + JSON CHECK), `lib/db.js` `CAPTAINSLOG_DB_PATH` env override, `lib/migrate.js` FK-off + `foreign_key_check`, deleted `lib/structured-log.js`. 40/40 tests green. |
 | 2.4 | `conversation_state` in SQLite | 2 | ✓ | Session 7 (PR #12). `lib/state.js` rewritten against `better-sqlite3` — sync API, `(db, chatId, data)`, upsert via `INSERT … ON CONFLICT(chat_id) DO UPDATE`. `test/state.test.js` rewritten against `openDb(':memory:')`. 40/40 tests green. |
-| 2.5 | Async Sheet sync job | 3 | | `lib/sheets.js`: `google-spreadsheet` v4 + service-account auth, reads `trips.findUnsynced()`, appends rows, marks `sheet_synced_at`. Test/prod via `SHEETS_WORKSHEET_TITLE` env var (same file, different tab). |
+| 2.5 | Async Sheet sync job | 3 | ✓ | Session 8 (PR #19). `lib/sheets.js` with `formatRow` (writes by header name, merges parsed.issues into notes), `syncToSheet`, `syncAll`. `node-cron` schedule in `bin/server.js`, `SHEETS_WORKSHEET_TITLE` / `SHEETS_SYNC_CRON` / `SHEETS_SYNC_DISABLED` envs. Live-tested end-to-end: 4 backlogged trips from session 7 synced to Sheet on first cron tick. |
 
 ---
 
@@ -74,7 +74,7 @@ The substantive V1 feature work.
 | 3.1 | Open-trip workflow (split for honesty) | **8** | Total — see 3.1a + 3.1b. Captain texts at trip start with available info, then at end to complete. |
 | 3.1a | Open-trip structural — status transitions, `findActive`, Purser routing, mocked-parse tests | 3 | `open` → `awaiting_confirmation` → `confirmed`. Mock-testable, bounded. |
 | 3.1b | Open-trip prompt tuning — "starting / update / done" sub-intent + multi-open arbitration | 5 | Iteration on real captain text. Not unit-testable in advance. Happens once 3.1a is in and traffic flows on mill-dev. |
-| 3.2 | Weather autofill via Open-Meteo | 3 | No auth, plain `fetch`. Lat/lon per route in `config/routes.json`, fallback to boat home dock. Same-day in-memory cache. Plumbed into `trips.weather_summary`. |
+| 3.2 ✓ | Weather autofill via Open-Meteo | 3 | Session 8 (PRs #20 + #24). `lib/weather.js` Open-Meteo current-block fetch (keyless), WMO-code condition labels, 8-point compass, in-memory same-day cache. Lat/lon in `config/routes.json` + `config/boats.json` (home dock fallback). Plumbed into `fileTrip` alongside crew lookup. `CAPTAINSLOG_NO_WEATHER=1` escape hatch. |
 | 3.3 | Intent classification (trip / drill / unknown) | 3 | Extend Haiku prompt to return `intent` discriminator. Purser dispatch on intent. "I didn't understand" reply for `unknown`. `/feedback` and `/file` slash-commands bypass Haiku entirely. |
 | 3.4 | Drill capture (split for honesty) | **5** | Total — see 3.4a + 3.4b. NL capture only — no reminders / triage in V1. |
 | 3.4a | Drill structural — `lib/drills.js` insert, Purser drill confirm flow, mocked-parse tests | 2 | Reuses `lib/crew.js` resolver from 2.3 for `crew_present_text`. |
@@ -118,11 +118,11 @@ working webhook URL. Brewboat target: June 1, 2026 beta.
 | Phase | Pts | Status |
 |-------|-----|--------|
 | 1 — Extract from helm | 9 | ✓ shipped |
-| 2 — Storage pivot (2.5 remaining) | 3 | in progress |
-| 3 — V1 capture features | 22 | not started |
+| 2 — Storage pivot | 26 | ✓ shipped |
+| 3 — V1 capture features (3.2 done) | 19 | in progress |
 | 4 — Digest + E2E | 6 | not started |
 | 5 — Production deploy | 9 | not started |
-| **V1 total remaining** | **40** | |
+| **V1 total remaining** | **34** | |
 
 22 days to June 1 (from 2026-05-10). At ~3 sessions/week, ~9 sessions of
 headroom against ~8 sessions of work at 6 pt/session. **No slack.** If anything
