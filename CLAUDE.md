@@ -23,7 +23,7 @@ Clark, Bilge, Tiller).
   message log per day for audit (`helm:DEC-003`).
 - **Messaging:** Telegram Bot API — no SDK, plain `fetch` (DEC-011)
 - **Email:** Gmail SMTP w/ app password (`helm:DEC-005`)
-- **Host:** bee-grace (dev). VPS production lands in Phase 4.
+- **Host:** mill-dev (dev). VPS production lands in Phase 5.
 
 ## Architecture
 
@@ -83,7 +83,7 @@ captains-log/
 3. **Build it** — implement the change
 4. **Test what makes sense** — run the script, send a test message via curl with
    `TELEGRAM_SKIP_SECRET=1`, hit `/health`, eyeball a Sheet row. No mock
-   harness — live exercise on bee-grace.
+   harness — live exercise on mill-dev.
 5. **Close out** — `/kill-this` → `/its-dead`
 
 ## Commands
