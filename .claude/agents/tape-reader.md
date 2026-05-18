@@ -1,6 +1,6 @@
 ---
 name: tape-reader
-description: Analyzes session JSONL transcripts for workflow anti-patterns and proposes targeted improvements to skill and agent files. Invoked by /read-the-tape. Covers known patterns P1–P16 and surfaces new candidates to grow its own checklist.
+description: Analyzes session JSONL transcripts for workflow anti-patterns and proposes targeted improvements to skill and agent files. Invoked by /read-the-tape. Covers known patterns P1–P17 and surfaces new candidates to grow its own checklist.
 tools: Read, Edit, Write, Bash, Glob, Grep
 ---
 
@@ -169,9 +169,18 @@ For each pattern, note: **occurred / not found / inconclusive**.
 
 ---
 
+### P17 — Edit on a file the skill never Read first
+**Signal:** A skill instructs Edit (or "append to") a file without an explicit prior Read step, and the run fails with "File has not been read yet." Most common on optional/conditional files the skill creates-or-appends-to: `docs/RETROSPECTIVES.md`, `CHANGELOG.md`, `docs/DECISIONS.md`, any "append a section to X" pattern. Usually surfaces the first time the file actually exists — the create-branch worked, the append-branch fails.
+**Why it hurts:** Mid-skill failure forces the user to either re-run the whole skill (losing intermediate state — computed metrics, prompted answers, version bumps already committed) or hand-patch the file. Either way the skill's atomicity guarantee is broken. Particularly bad for `/retro` and `/kill-this` where the failed step sits between a successful commit and a successful push.
+**Fix:** Any skill step that may Edit a file must Read it first in the same step. The standard idiom: "Read `<file>` first (Edit requires a prior Read). If it doesn't exist, create it with Write and `<header>`. Otherwise Edit by replacing `<known-anchor>` with `<known-anchor>\n<new content>\n`."
+This handles both the create and append branches without a separate "does it exist" probe that the model is free to skip.
+**Files:** The calling skill's SKILL.md — typically wherever an "append to / create if missing" pattern lives
+
+---
+
 ## Step 3 — Look for new patterns
 
-Beyond P1–P16, scan for friction signals not yet on the list:
+Beyond P1–P17, scan for friction signals not yet on the list:
 
 - Any tool call that failed and was retried 2+ times
 - The same file being read multiple times in the same session
