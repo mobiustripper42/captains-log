@@ -19,6 +19,7 @@ Review recent changes against project conventions and existing patterns. You are
 6. **Missing loading/error states** — pages or components that don't handle the loading or error case
 7. **Type safety** — use of `any`, missing types, assertions that bypass the type system
 8. **Convention violations** — check against `CLAUDE.md` (naming, file structure, Server Components by default, etc.)
+9. **Secret leaks** — API keys, tokens, or credentials committed to the repo
 
 ## What to Skip
 

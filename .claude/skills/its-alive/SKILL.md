@@ -20,9 +20,9 @@ Run `git fetch origin` to refresh remote state. Capture `BRANCH=$(git branch --s
 - `main`: `git pull --ff-only origin main`. On divergence, show `git log --oneline origin/main..HEAD` and `git log --oneline HEAD..origin/main`, then ask: **"(a) rebase, (b) reset to origin/main, (c) abort?"** Wait for the choice.
 - Anything else (manual non-standard branch): if `git status --porcelain` is dirty, stop and ask the user to commit/stash. If clean, ask the user **"Stay on `$BRANCH` or switch to `main`?"** Wait for the choice.
 
-### Step 0.5 — Orphan branch + unmerged PR scan
+### Step 0.5 — Orphan branch + PR-state scan
 
-Before stamping time, check for leftover work from prior sessions. The CC platform creates a new `claude/*` branch per session, so previous sessions' branches and PRs stay alive on the remote until explicitly merged or deleted.
+Before stamping time, check for leftover work from prior sessions. The CC platform creates a new `claude/*` branch per session, so previous sessions' branches and PRs stay alive on the remote until explicitly merged or deleted. After a **squash merge** (GitHub's default for this workflow), the branch's original commits never appear on `$WORKING_BRANCH` — which has only the squashed commit — so a naive "commits not on main" scan flags every shipped branch as an orphan. Step 0.5 must cross-reference PR state to avoid that false alarm.
 
 **Resolve `WORKING_BRANCH`:**
 ```
@@ -33,21 +33,26 @@ git show-ref --verify --quiet refs/remotes/origin/staging && WORKING_BRANCH=stag
 ```
 git for-each-ref refs/remotes/origin/claude/ --format='%(refname:short)'
 ```
-For each `origin/claude/<slug>` (other than the current branch): `git log --oneline origin/$WORKING_BRANCH..<ref>`. If non-empty, it's a candidate.
+For each `origin/claude/<slug>` (other than the current branch): `git log --oneline origin/$WORKING_BRANCH..<ref>`. If non-empty, it's a Scan-A candidate.
 
-**Scan B — open PRs from prior sessions:**
-- `gh pr list --state open --base "$WORKING_BRANCH" --json number,title,headRefName,createdAt,updatedAt --limit 20` (or `mcp__github__list_pull_requests` if `gh` is unavailable).
+**Scan B — PRs (open AND closed) keyed by branch:**
+- `gh pr list --state all --base "$WORKING_BRANCH" --json number,title,headRefName,state,mergedAt,createdAt,updatedAt --limit 50` (or `mcp__github__list_pull_requests` with `state: all` if `gh` is unavailable).
 
-**Cross-reference** the two scans:
+For each Scan-A candidate, find the most recent PR whose `headRefName` matches the branch's short name (strip the `origin/` prefix; highest PR number wins). The PR's state and merge status determine the category:
+
 | Category | Definition | Action |
 |----------|------------|--------|
-| Open-with-PR | Branch has unmerged commits AND an open PR | Tell the user; don't touch. In-flight. |
-| Orphan-without-PR | Branch has unmerged commits AND no open PR | **Real problem.** Surface: "(a) open a PR now, (b) cherry-pick onto current branch, (c) delete (commits lost)?" Wait. |
-| Stale-no-commits | Branch on remote but no commits ahead | Suggest `git push origin --delete <ref>` if more than one such ref exists. |
+| Open-with-PR | Most recent PR is OPEN | Tell the user; don't touch — in-flight. Flag if `createdAt` is more than 24h old — likely a forgotten merge. |
+| Merged-cleanable | Most recent PR is CLOSED with `mergedAt` set (non-null) | **Squash-merge artifact** — branch is safe to delete. Aggregate count across all matches. After Scans A + B finish, prompt once: **"Found N merged-cleanable branches: `<list>`. Delete all? (y/n)"**. On `y`: run `git push origin --delete <ref>` per branch. Non-blocking — Step 1 proceeds regardless of the answer. |
+| Orphan-abandoned | Most recent PR is CLOSED with `mergedAt` null | PR closed without merging — work was abandoned. Surface advisory: "(a) reopen PR, (b) cherry-pick onto current branch, (c) delete?" Non-blocking. |
+| Orphan-without-PR | Branch has commits but NO PR was ever opened for it | **Real problem — work has no shipping path.** Surface and **wait**: "(a) open a PR now, (b) cherry-pick onto current branch, (c) delete (commits lost)?" |
+| Stale-no-commits | Branch on remote, zero commits ahead of `$WORKING_BRANCH` and no associated PR commits | Suggest deletion (`git push origin --delete <ref>`) if more than one such ref exists. Non-blocking. |
 
-Also flag any open PR `createdAt` older than 24h — likely forgotten merges.
+The **Merged-cleanable** category is the fix for the most-common Step 0.5 noise source. Under the prior contract (which checked only OPEN PRs), a squash-merged branch's original commits matched "Orphan-without-PR" and falsely raised an alarm every session. With the merged-state lookup in Scan B, these branches are correctly recognized as "shipped, safe to delete" and aggregated into one cleanup prompt instead of repeatedly nagging.
 
-Gating for orphans-without-PR; advisory otherwise. If `gh` and MCP are both unavailable, skip silently and note in Context.
+**Gating rule.** Only **Orphan-without-PR** blocks the briefing — that's real lost work that needs a decision before continuing. Every other category is advisory; their prompts may surface (and the user may answer them inline), but Step 1 proceeds regardless of answer or skip.
+
+**Tool-outage fallback.** If `gh` and `mcp__github__list_pull_requests` are both unavailable, skip Scan B entirely and surface every Scan-A candidate as "branch has commits — PR state check unavailable, do not assume orphan." Don't false-alarm during a tool outage. Note the skipped check in the session Context section.
 
 ### Step 0.6 — Ensure `.sessions-worktree/` (DEC-014)
 
@@ -96,13 +101,11 @@ TIME_PART=$(date -u +%H%M)
 
 ## Step 2 — Resolve dev identity
 
-Use the **Read** tool on `~/.claude/devname`. If it succeeds, `DEV` = the trimmed file contents.
+Use the **Read** tool on `~/.claude/devname`. If it succeeds, `DEV` = the trimmed file contents. Done.
 
-If Read errors (file doesn't exist), fall back via Bash: `echo "$USER"`. Trim and assign to `DEV`.
+If Read errors (file does not exist), prompt the user once for their dev handle and offer to write `~/.claude/devname` via the **Write** tool. Once written, `DEV` = the handle. Done.
 
-If both are empty, prompt the user for their dev handle and offer to write `~/.claude/devname` via the **Write** tool.
-
-(Read + a single clean `echo` keeps the harness validator silent — no `||`, no `2>/dev/null`, no command substitution chain.)
+**Do NOT fall back to `echo "$USER"` or any other Bash-based identity probe.** The `$USER` branch was removed because: (a) the harness validator flags `$USER`-shaped Bash commands on a rolling cadence as new patterns land — so every fix to the validator-silence wording was only good until the next validator pattern landed; (b) `$USER` is unreliable in sandboxed environments where `~/.claude/devname` doesn't persist between sessions anyway, so the fallback was solving the wrong problem; (c) the prompt + Write path resolves to a real persistent value that future sessions read directly. The Read + Write path is the only path. If Read fails, the prompt is mandatory.
 
 ## Step 3 — Derive the slug
 

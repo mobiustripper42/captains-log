@@ -42,6 +42,7 @@ If `mode` is missing, default to `interactive`. If `mode: auto` is requested but
 - `<seeds>/domain/` — template for non-dev domains (bread, tomatoes, ops, etc.)
 - `<seeds>/seeds-version` — the latest published schema version (the calling skill should have already gated on compatibility before invoking you, but verify)
 - `<seeds>/.claude/type-manifest.yaml` — project-type gating manifest (DEC-011). Lists the small set of `dev/claude/` files that only apply to certain project types (e.g. `agents/ui-reviewer.md` only applies to `webapp`-type projects)
+- `<seeds>/.claude/routine-config.yaml` — file-class registry (DEC-018) under the `file-classes:` key. Maps seeds-side glob patterns to one of `logic` / `context` / `hybrid`. Read at Step 1.4 to fork classification behavior per file.
 - The active project's `.claude/project-type` — single-line file naming the project's type (`webapp` or `tool`). Optional; if absent, no type-gating is applied
 - The active project's `.claude/agents/`, `.claude/skills/`, `CLAUDE.md`, and `docs/` — the live versions
 - `<seeds>/dev/claude/skills/push-seeds/SKILL.md` and `<seeds>/dev/claude/skills/pull-seeds/SKILL.md` — the invocation wrappers that call you
@@ -77,7 +78,26 @@ For each pair that survived the gate, diff project-live against seeds-template:
 
 The diff itself is direction-symmetric — same hunks, same classification rubric. Direction only matters at apply time (Step 4).
 
-**Never blanket-skip a file** that has a corresponding template, even if the project's copy is heavily customized. Hunk-classify the diff. Files like `docs/BRAND.md`, `docs/PROJECT_PLAN.md`, `docs/RETROSPECTIVES.md`, and `CLAUDE.md` carry both project substitutions AND structural template content; treating them as 100%-project-specific blanks out the structural channel and was the failure mode of the 2026-05-08 first run. The only gates that drop a whole file from scope are the project-type manifest above and the duplicate-PR check in Step 1.5 below — both explicit.
+**Never blanket-skip a file** that has a corresponding template, even if the project's copy is heavily customized. Hunk-classify the diff. Files like `docs/BRAND.md`, `docs/PROJECT_PLAN.md`, `docs/RETROSPECTIVES.md`, and `CLAUDE.md` carry both project substitutions AND structural template content; treating them as 100%-project-specific blanks out the structural channel and was the failure mode of the 2026-05-08 first run. The only gates that drop a whole file from scope are the project-type manifest above, the file-class `context` lookup in Step 1.4 below, and the duplicate-PR check in Step 1.5 — all three explicit.
+
+### Step 1.4 — File-class lookup (DEC-018)
+
+After Step 1's type-gate and before Step 1.5's duplicate-PR check, read `<seeds>/.claude/routine-config.yaml` and parse the `file-classes:` block. This is an ordered list of single-key maps from glob pattern to class name (one of `logic` / `context` / `hybrid`). First match wins — earlier entries take precedence over later ones.
+
+For each file pair that survived Step 1, look up its seeds-side path against the registry. The match resolves to one of four cases:
+
+- **`logic`** — file is byte-identical-by-design across projects. Skip hunk classification entirely. Step 2 hash-compares; if hashes diverge, emit a single Step 3 row (see Step 2 + Step 3 below). If hashes match, emit nothing.
+- **`context`** — file is project-specific. Drop the pair from diff scope entirely. Record one entry for the Step 6 report:
+  > `<file>` skipped — class: context (project-owned, never syncs)
+  Also surface as a Step 3 row with Provenance `Class-gated: context` for visibility in the classification table.
+- **`hybrid`** — file is a generic shell paired with a project-side `.claude/<basename>-context.{md,json}` context file (DEC-019). Only the shell participates in classification. The project-side context file is implicitly context-class and not in scope. Proceed to Step 2 hunk classification on the shell file as today.
+- **Unmatched** — no glob in the registry matches the file's seeds-side path. Default to `hybrid` behavior with the seeds file as the de facto shell. Legacy behavior is preserved for any file not yet listed in the registry; the noise reduction kicks in only as files get registered.
+
+If `<seeds>/.claude/routine-config.yaml` is missing or unreadable, or the `file-classes:` block is absent, log one line in Step 6 (`File-class lookup skipped — routine-config.yaml or file-classes block unavailable.`) and treat all pairs as unmatched. Same fallback discipline as DEC-011's type-gating: never fail-closed, always fall through to legacy behavior with a visible note.
+
+This step is a **scoping + behavior-fork** step, not a hunk-level one. It either drops the pair from scope (`context`) or changes how Step 2 classifies it (`logic` → hash-only, `hybrid`/unmatched → hunk classification). The fork happens once per file pair.
+
+Gate ordering: Step 1 (type-gate, whole-file drop on project type) → Step 1.4 (file-class, behavior fork on registry) → Step 1.5 (open-PR dedup) → Step 2 (hunk classification, only for hybrid shells and unmatched files). Type-gate first because dropping a file entirely is cheaper than classifying it; file-class second because it changes what "classify" means.
 
 ### Step 1.5 — Drop already-proposed diffs
 
@@ -98,9 +118,15 @@ If `mcp__github__list_pull_requests` is unavailable in this session, skip Step 1
 
 This check fires regardless of `mode`. In `mode: interactive`, surface each Already-proposed entry in the Step 3 table with the PR URL so the human can confirm the skip; in `mode: auto`, drop silently and surface in Step 6.
 
-### Step 2 — Classify each diff hunk
+### Step 2 — Classify each diff hunk (or hash-compare logic files)
 
-For every changed hunk, first label its **provenance** by where the content lives:
+Behavior forks on the file's class as resolved in Step 1.4:
+
+- **`logic` class:** compare normalized file hashes (strip trailing whitespace, normalize line endings to LF). If equal, emit no row — the file is in sync, nothing to report. If unequal, emit a single Step 3 row: `Hunk: hash mismatch`, `Provenance: Class: logic`, `Classification: Flag`, `Action: logic-drift — file requires sync`. No hunk breakdown. No LLM judgment. Apply behavior in Step 4 differs from hunk-level apply (see Step 4 below).
+- **`context` class:** no work — the pair was already dropped from scope at Step 1.4.
+- **`hybrid` class or unmatched:** hunk-classify as below. The file's hybrid status is implicit in registry membership and doesn't add a per-hunk Provenance value.
+
+For hybrid and unmatched files, for every changed hunk, first label its **provenance** by where the content lives:
 
 - **Project-only** — the hunk's content is in the project file but absent from the template. The project either filled in a `[placeholder]` slot (concrete project text where the template has a blank) OR added structure the template doesn't have.
 - **Template-only** — the hunk's content is in the template but absent from the project file. The template added something the project hasn't received yet — typically a structural improvement.
@@ -140,7 +166,7 @@ Output a table:
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
 
-`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`, `[placeholder] filled with "We write in second person..."`). `Provenance` is one of `Project-only` / `Template-only` / `Both-modified` / `Type-gated` / `Already-proposed`. `Classification` is `Skip` / `Backport` / `Flag`. `Action` is what you actually did/will do (`Skipped`, `Forward-ported`, `Backported`, `Flagged in PR body`).
+`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`, `[placeholder] filled with "We write in second person..."`). `Provenance` is one of `Project-only` / `Template-only` / `Both-modified` / `Type-gated` / `Already-proposed` / `Class-gated: context` / `Class: logic`. `Classification` is `Skip` / `Backport` / `Flag`. `Action` is what you actually did/will do (`Skipped`, `Forward-ported`, `Backported`, `Flagged in PR body`, `logic-drift — file requires sync`).
 
 For files dropped from scope by the Step 1 type gate, emit one row per gated file:
 
@@ -148,22 +174,36 @@ For files dropped from scope by the Step 1 type gate, emit one row per gated fil
 |------|------|------------|----------------|--------|
 | `agents/ui-reviewer.md` | (file) | Type-gated | Skip | Skipped — project type `tool`, file applies to `[webapp]` |
 
+For files dropped from scope by the Step 1.4 file-class lookup as `context` class, emit one row per dropped file:
+
+| File | Hunk | Provenance | Classification | Action |
+|------|------|------------|----------------|--------|
+| `dev/claude/docs/SPEC.md` | (file) | Class-gated: context | Skip | Skipped — class: context (project-owned, never syncs) |
+
+For files matched as `logic` class at Step 1.4 with mismatched hashes, emit one row per file:
+
+| File | Hunk | Provenance | Classification | Action |
+|------|------|------------|----------------|--------|
+| `dev/claude/skills/its-alive/SKILL.md` | hash mismatch | Class: logic | Flag | logic-drift — file requires sync |
+
 For files dropped from scope by the Step 1.5 duplicate-PR check, emit one row per dropped file:
 
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
 | `dev/claude/skills/its-alive/SKILL.md` | (file) | Already-proposed | Skip | Skipped — already proposed on https://github.com/mobiustripper42/seeds/pull/39 |
 
-Type-gated and Already-proposed rows both carry `Hunk: (file)` (whole-file gates, not hunk classifications). Type-gated `Action` includes both the project's type and the manifest's allowed list. Already-proposed `Action` includes the existing PR's URL so the reviewer can compare.
+Type-gated, Class-gated, and Already-proposed rows all carry `Hunk: (file)` (whole-file gates, not hunk classifications). Logic-drift rows carry `Hunk: hash mismatch` to make the failure mode legible at a glance. Type-gated `Action` includes both the project's type and the manifest's allowed list. Already-proposed `Action` includes the existing PR's URL so the reviewer can compare. For `hybrid` class files, hunk classification proceeds normally — the file's hybrid status is implied by registry membership and doesn't need a per-row Provenance value.
 
 In `mode: interactive`:
 - For each **backport** (push) / **forward-port** (pull), show the diff hunk and ask: "Apply? (y/n)"
 - For each **pattern flag**, describe what you're seeing and ask: "Keep watching, or act now?"
+- For each **logic-drift** row, show the file paths and ask: "Sync the project file from template (or vice versa)? (y/n)"
 - Wait for user response on each before proceeding.
 
 In `mode: auto`:
 - Emit the table to stdout but do NOT prompt.
 - Apply every **backport**/**forward-port** automatically in Step 4.
+- Apply every **logic-drift** automatically in Step 4 (full-file overwrite).
 - Pattern flags are recorded in Step 6 only — never applied.
 - Continue straight through to Step 4.
 
@@ -189,7 +229,9 @@ The apply target depends on direction:
    - Project-specific paths stay as-is
 4. Write the updated project file
 
-The classifier is symmetric; the substitution-preservation logic flips. In push, you generify; in pull, you respect existing concretions.
+**Logic-drift apply (both directions):** for files matched as `logic` class at Step 1.4 with mismatched hashes, the apply is a **full-file overwrite** from the source side, not a hunk-level patch. PUSH copies the project file over the template (after the project file's content was certified clean by the user); PULL copies the template over the project file. There's no substitution-preservation step — logic files have no `[placeholder]` tokens or project-specific concretions by definition (that's what makes them logic-class). If a logic file picks up project-specific content over time, the right fix is to either (a) demote it from `logic` to `hybrid` in `routine-config.yaml` and refactor, or (b) reset it back to template — never partial-apply.
+
+The classifier is symmetric; the substitution-preservation logic flips. In push, you generify; in pull, you respect existing concretions. Logic-drift bypasses both — it's a wholesale sync.
 
 ### Step 5 — Bug check
 
@@ -205,8 +247,9 @@ Apply if approved.
 Output:
 - Files updated (in `<seeds>/` for push, in the project for pull)
 - Bug fixes applied (or flagged) on the non-applying side
-- Changes skipped and why — include Already-proposed entries with the existing PR URL, Type-gated entries with the project type + allowed list, and Project-only / Both-modified skips
+- Changes skipped and why — include Already-proposed entries with the existing PR URL, Type-gated entries with the project type + allowed list, Class-gated entries with the class, and Project-only / Both-modified skips
 - Patterns flagged for future `shared/` extraction (if any)
+- File-class lookup fallback note if `routine-config.yaml` or the `file-classes:` block was unavailable
 
 Remind the user to review the diff before committing. For PUSH, that's the seeds repo; for PULL, the project. Either way, the calling skill (`/push-seeds` or `/pull-seeds`) handles the commit step — you only apply the file edits.
 
