@@ -90,6 +90,54 @@ test('update applies patch and bumps updated_at; ignores unknown keys', () => {
   assert.equal(trips.findById(db, id).notes, 'updated');
 });
 
+test('findActive returns null when no open trip for captain', () => {
+  const db = freshDb();
+  trips.create(db, minimal);
+  assert.equal(trips.findActive(db, minimal.captain_chat_id), null);
+});
+
+test('findActive returns the single open trip for a captain', () => {
+  const db = freshDb();
+  const open = trips.create(db, { ...minimal, status: 'open' }).id;
+  trips.create(db, minimal);
+  const row = trips.findActive(db, minimal.captain_chat_id);
+  assert.equal(row.id, open);
+  assert.equal(row.status, 'open');
+});
+
+test('findActive scopes by captain — another captain\'s open is not returned', () => {
+  const db = freshDb();
+  trips.create(db, { ...minimal, status: 'open', captain_chat_id: '99' });
+  assert.equal(trips.findActive(db, minimal.captain_chat_id), null);
+});
+
+test('findActive throws when a captain has multiple open trips (3.1b territory)', () => {
+  const db = freshDb();
+  trips.create(db, { ...minimal, status: 'open' });
+  trips.create(db, { ...minimal, status: 'open' });
+  assert.throws(() => trips.findActive(db, minimal.captain_chat_id), /multi-open arbitration/);
+});
+
+test('confirmOpen flips status to confirmed and applies patch', () => {
+  const db = freshDb();
+  const { id } = trips.create(db, { ...minimal, status: 'open', passenger_count: null });
+  trips.confirmOpen(db, id, { passenger_count: 14, notes: 'choppy', confirmed_at: '2026-05-21T20:00:00Z' });
+  const row = trips.findById(db, id);
+  assert.equal(row.status, 'confirmed');
+  assert.equal(row.passenger_count, 14);
+  assert.equal(row.notes, 'choppy');
+  assert.equal(row.confirmed_at, '2026-05-21T20:00:00Z');
+});
+
+test('confirmOpen defaults confirmed_at when omitted', () => {
+  const db = freshDb();
+  const { id } = trips.create(db, { ...minimal, status: 'open' });
+  trips.confirmOpen(db, id, { passenger_count: 7 });
+  const row = trips.findById(db, id);
+  assert.equal(row.status, 'confirmed');
+  assert.ok(row.confirmed_at, 'confirmed_at should be auto-stamped');
+});
+
 test('remove deletes the row', () => {
   const db = freshDb();
   const { id } = trips.create(db, minimal);

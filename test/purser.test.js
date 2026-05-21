@@ -3,7 +3,9 @@ process.env.CAPTAINSLOG_NO_WEATHER = '1';
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Y_PATTERN, formatConfirmation, fileTrip } from '../lib/purser.js';
+import { Y_PATTERN, formatConfirmation, fileTrip, routeParsed } from '../lib/purser.js';
+import { load as loadState } from '../lib/state.js';
+import * as trips from '../lib/trips.js';
 import { openDb } from '../lib/db.js';
 import { migrate } from '../lib/migrate.js';
 import { _resetCacheForTests as resetRosters } from '../lib/rosters.js';
@@ -168,3 +170,268 @@ test('fileTrip succeeds with a known boat slug; CAPTAINSLOG_NO_WEATHER skips the
 });
 // (Weather happy-path with a fake fetch is covered in test/weather.test.js;
 // not duplicated here so we don't have to toggle env vars mid-suite.)
+
+// --- routeParsed — sub_intent dispatch ---
+
+const baseParsed = {
+  boat: 'Brewboat',
+  route: 'Cuyahoga River',
+  trip_count: null,
+  total_passengers: null,
+  passengers_by_trip: null,
+  trip_start: null,
+  trip_end: null,
+  first_mate: null,
+  emergency_drills: null,
+  issues: [],
+  notes: null,
+};
+
+test('routeParsed starting — creates open trip, no state write, returns ack', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'starting', trip_start: '1:00pm' },
+    rawText: 'starting Cuyahoga in Brewboat',
+    receivedAt: '2026-05-21T17:00:00Z',
+  });
+  assert.equal(result.state, null);
+  assert.match(result.reply, /Got it/);
+  const open = trips.findActive(db, '1');
+  assert.ok(open, 'expected open trip row');
+  assert.equal(open.boat_slug, 'brewboat');
+  assert.equal(open.route_slug, 'cuyahoga');
+  assert.equal(open.start_time, '1:00pm');
+  assert.equal(loadState(db, '1').status, undefined, 'no conversation_state row');
+});
+
+test('routeParsed starting — unknown boat returns friendly reply, no row', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'starting', boat: 'Mystery Boat' },
+    rawText: 'starting on Mystery',
+    receivedAt: '2026-05-21T17:00:00Z',
+  });
+  assert.match(result.reply, /don't recognize/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trips').get().n, 0);
+});
+
+test('routeParsed update — with no open trip returns nudge', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'update', total_passengers: 8 },
+    rawText: '8 pax on board now',
+    receivedAt: '2026-05-21T17:00:00Z',
+  });
+  assert.match(result.reply, /No open trip on file/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trips').get().n, 0);
+});
+
+test('routeParsed update — merges into open trip, no state write', async () => {
+  const db = freshDb();
+  await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'starting', trip_start: '1:00pm' },
+    rawText: 'starting',
+    receivedAt: '2026-05-21T17:00:00Z',
+  });
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'update', notes: 'fog rolling in' },
+    rawText: 'fog rolling in',
+    receivedAt: '2026-05-21T17:15:00Z',
+  });
+  assert.equal(result.reply, 'Noted.');
+  const row = trips.findActive(db, '1');
+  assert.equal(row.notes, 'fog rolling in');
+  assert.equal(row.start_time, '1:00pm', 'starting fields preserved');
+});
+
+test('routeParsed done — with open trip merges + sets open_trip_id in state', async () => {
+  const db = freshDb();
+  await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'starting', trip_start: '1:00pm' },
+    rawText: 'starting',
+    receivedAt: '2026-05-21T17:00:00Z',
+  });
+  const openId = trips.findActive(db, '1').id;
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'done', total_passengers: 12, trip_end: '4:00pm' },
+    rawText: 'done, 12 pax',
+    receivedAt: '2026-05-21T20:00:00Z',
+  });
+  assert.equal(result.state, 'awaiting_confirmation');
+  assert.match(result.reply, /Confirming your log/);
+  const state = loadState(db, '1');
+  assert.equal(state.status, 'awaiting_confirmation');
+  assert.equal(state.open_trip_id, openId);
+  assert.equal(state.parsed.trip_start, '1:00pm', 'merged from open row');
+  assert.equal(state.parsed.trip_end, '4:00pm');
+  assert.equal(state.parsed.total_passengers, 12);
+});
+
+test('routeParsed done — with no open trip falls through to confirmation flow (no open_trip_id)', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'done', total_passengers: 12 },
+    rawText: 'done, 12 pax',
+    receivedAt: '2026-05-21T20:00:00Z',
+  });
+  assert.equal(result.state, 'awaiting_confirmation');
+  const state = loadState(db, '1');
+  assert.equal(state.open_trip_id, undefined);
+});
+
+test('routeParsed null sub_intent preserves today\'s single-shot confirmation flow', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, total_passengers: 30, trip_count: 2 },
+    rawText: '2 trips, 30 pax',
+    receivedAt: '2026-05-21T20:00:00Z',
+  });
+  assert.equal(result.state, 'awaiting_confirmation');
+  assert.match(result.reply, /Confirming your log/);
+  const state = loadState(db, '1');
+  assert.equal(state.open_trip_id, undefined);
+});
+
+test('routeParsed done — existingOpenTripId (correction path) preserves the link without re-querying', async () => {
+  const db = freshDb();
+  // simulate the open trip already on file (e.g. from a prior `starting`)
+  const { id: openId } = trips.create(db, {
+    status: 'open',
+    captain_chat_id: '1',
+    captain_name: 'Eric',
+    boat_slug: 'brewboat',
+    trip_date: '2026-05-21',
+    start_time: '1:00pm',
+  });
+  // also seed a second open trip — would normally make findActive throw.
+  // existingOpenTripId path should bypass findActive entirely.
+  trips.create(db, {
+    status: 'open',
+    captain_chat_id: '1',
+    captain_name: 'Eric',
+    boat_slug: 'brewboat',
+    trip_date: '2026-05-21',
+  });
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'done', total_passengers: 12 },
+    rawText: 'done, 12 pax',
+    receivedAt: '2026-05-21T20:00:00Z',
+    existingOpenTripId: openId,
+  });
+  assert.equal(result.state, 'awaiting_confirmation');
+  const state = loadState(db, '1');
+  assert.equal(state.open_trip_id, openId);
+  assert.equal(state.parsed.trip_start, '1:00pm', 'merged from the linked open row, not findActive');
+});
+
+test('routeParsed done — multi-open without existingOpenTripId returns friendly reply, not 500', async () => {
+  const db = freshDb();
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'done', total_passengers: 12 },
+    rawText: 'done',
+    receivedAt: '2026-05-21T20:00:00Z',
+  });
+  assert.match(result.reply, /more than one open trip/);
+  assert.equal(result.state, null);
+});
+
+test('routeParsed update — multi-open returns friendly reply, not 500', async () => {
+  const db = freshDb();
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'update', notes: 'fog' },
+    rawText: 'fog rolling in',
+    receivedAt: '2026-05-21T17:00:00Z',
+  });
+  assert.match(result.reply, /more than one open trip/);
+  assert.equal(result.state, null);
+});
+
+// --- fileTrip — open_trip_id path ---
+
+test('fileTrip with state.open_trip_id updates the existing open row to confirmed', async () => {
+  const db = freshDb();
+  const { id: openId } = trips.create(db, {
+    status: 'open',
+    captain_chat_id: '1',
+    captain_name: 'Eric',
+    boat_slug: 'brewboat',
+    trip_date: '2026-05-21',
+    start_time: '1:00pm',
+  });
+  const state = {
+    parsed: { ...baseParsed, sub_intent: 'done', total_passengers: 12, trip_end: '4:00pm' },
+    raw_message: 'done, 12 pax',
+    received_at: '2026-05-21T20:00:00Z',
+    correction_count: 0,
+    open_trip_id: openId,
+  };
+  const { id } = await fileTrip({ db, chatId: '1', captain, state, source: 'telegram' });
+  assert.equal(id, openId, 'should update the same row, not insert');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trips').get().n, 1);
+  const row = db.prepare('SELECT * FROM trips WHERE id = ?').get(openId);
+  assert.equal(row.status, 'confirmed');
+  assert.equal(row.passenger_count, 12);
+  assert.equal(row.end_time, '4:00pm');
+  assert.equal(row.start_time, '1:00pm', 'starting fields preserved on confirm');
+});
+
+test('fileTrip with open_trip_id does not require parsed.boat (slug already on row)', async () => {
+  const db = freshDb();
+  const { id: openId } = trips.create(db, {
+    status: 'open',
+    captain_chat_id: '1',
+    captain_name: 'Eric',
+    boat_slug: 'brewboat',
+    trip_date: '2026-05-21',
+  });
+  const state = {
+    parsed: { ...baseParsed, boat: null, sub_intent: 'done', total_passengers: 9 },
+    raw_message: 'done, 9 pax',
+    received_at: '2026-05-21T20:00:00Z',
+    correction_count: 0,
+    open_trip_id: openId,
+  };
+  const { id } = await fileTrip({ db, chatId: '1', captain, state, source: 'telegram' });
+  assert.equal(id, openId);
+  assert.equal(db.prepare('SELECT status FROM trips WHERE id = ?').get(openId).status, 'confirmed');
+});
