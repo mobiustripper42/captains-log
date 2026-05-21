@@ -319,6 +319,73 @@ test('routeParsed null sub_intent preserves today\'s single-shot confirmation fl
   assert.equal(state.open_trip_id, undefined);
 });
 
+test('routeParsed done — existingOpenTripId (correction path) preserves the link without re-querying', async () => {
+  const db = freshDb();
+  // simulate the open trip already on file (e.g. from a prior `starting`)
+  const { id: openId } = trips.create(db, {
+    status: 'open',
+    captain_chat_id: '1',
+    captain_name: 'Eric',
+    boat_slug: 'brewboat',
+    trip_date: '2026-05-21',
+    start_time: '1:00pm',
+  });
+  // also seed a second open trip — would normally make findActive throw.
+  // existingOpenTripId path should bypass findActive entirely.
+  trips.create(db, {
+    status: 'open',
+    captain_chat_id: '1',
+    captain_name: 'Eric',
+    boat_slug: 'brewboat',
+    trip_date: '2026-05-21',
+  });
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'done', total_passengers: 12 },
+    rawText: 'done, 12 pax',
+    receivedAt: '2026-05-21T20:00:00Z',
+    existingOpenTripId: openId,
+  });
+  assert.equal(result.state, 'awaiting_confirmation');
+  const state = loadState(db, '1');
+  assert.equal(state.open_trip_id, openId);
+  assert.equal(state.parsed.trip_start, '1:00pm', 'merged from the linked open row, not findActive');
+});
+
+test('routeParsed done — multi-open without existingOpenTripId returns friendly reply, not 500', async () => {
+  const db = freshDb();
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'done', total_passengers: 12 },
+    rawText: 'done',
+    receivedAt: '2026-05-21T20:00:00Z',
+  });
+  assert.match(result.reply, /more than one open trip/);
+  assert.equal(result.state, null);
+});
+
+test('routeParsed update — multi-open returns friendly reply, not 500', async () => {
+  const db = freshDb();
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  trips.create(db, { status: 'open', captain_chat_id: '1', captain_name: 'Eric', boat_slug: 'brewboat', trip_date: '2026-05-21' });
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, sub_intent: 'update', notes: 'fog' },
+    rawText: 'fog rolling in',
+    receivedAt: '2026-05-21T17:00:00Z',
+  });
+  assert.match(result.reply, /more than one open trip/);
+  assert.equal(result.state, null);
+});
+
 // --- fileTrip — open_trip_id path ---
 
 test('fileTrip with state.open_trip_id updates the existing open row to confirmed', async () => {
