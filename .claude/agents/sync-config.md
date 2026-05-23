@@ -87,9 +87,7 @@ After Step 1's type-gate and before Step 1.5's duplicate-PR check, read `<seeds>
 For each file pair that survived Step 1, look up its seeds-side path against the registry. The match resolves to one of four cases:
 
 - **`logic`** — file is byte-identical-by-design across projects. Skip hunk classification entirely. Step 2 hash-compares; if hashes diverge, emit a single Step 3 row (see Step 2 + Step 3 below). If hashes match, emit nothing.
-- **`context`** — file is project-specific. Drop the pair from diff scope entirely. Record one entry for the Step 6 report:
-  > `<file>` skipped — class: context (project-owned, never syncs)
-  Also surface as a Step 3 row with Provenance `Class-gated: context` for visibility in the classification table.
+- **`context`** — file is project-specific. Drop the pair from diff scope entirely. Record in Step 6 aggregated summary (see Step 6 below). **Do not emit a Step 3 table row.**
 - **`hybrid`** — file is a generic shell paired with a project-side `.claude/<basename>-context.{md,json}` context file (DEC-019). Only the shell participates in classification. The project-side context file is implicitly context-class and not in scope. Proceed to Step 2 hunk classification on the shell file as today.
 - **Unmatched** — no glob in the registry matches the file's seeds-side path. Default to `hybrid` behavior with the seeds file as the de facto shell. Legacy behavior is preserved for any file not yet listed in the registry; the noise reduction kicks in only as files get registered.
 
@@ -122,8 +120,10 @@ This check fires regardless of `mode`. In `mode: interactive`, surface each Alre
 
 Behavior forks on the file's class as resolved in Step 1.4:
 
-- **`logic` class:** compare normalized file hashes (strip trailing whitespace, normalize line endings to LF). If equal, emit no row — the file is in sync, nothing to report. If unequal, emit a single Step 3 row: `Hunk: hash mismatch`, `Provenance: Class: logic`, `Classification: Flag`, `Action: logic-drift — file requires sync`. No hunk breakdown. No LLM judgment. Apply behavior in Step 4 differs from hunk-level apply (see Step 4 below).
-- **`context` class:** no work — the pair was already dropped from scope at Step 1.4.
+- **`logic` class:** compare normalized file hashes (strip trailing whitespace, normalize line endings to LF).
+  - **If equal — emit nothing.** No Step 3 row, no Step 6 entry. The file is in sync; absence is the report. Do not emit "no action (hash match)" or "Equal" rows — silence is the signal.
+  - If unequal, emit a single Step 3 row: `Hunk: hash mismatch`, `Provenance: Class: logic`, `Classification: Flag`, `Action: logic-drift — file requires sync`. No hunk breakdown. No LLM judgment. Apply behavior in Step 4 differs from hunk-level apply (see Step 4 below).
+- **`context` class:** no work — the pair was already dropped from scope at Step 1.4. Aggregated in Step 6, no Step 3 row.
 - **`hybrid` class or unmatched:** hunk-classify as below. The file's hybrid status is implicit in registry membership and doesn't add a per-hunk Provenance value.
 
 For hybrid and unmatched files, for every changed hunk, first label its **provenance** by where the content lives:
@@ -161,49 +161,49 @@ The provenance + action together resolve most hunks unambiguously. For genuinely
 
 ### Step 3 — Present findings
 
-Output a table:
+The classification table contains **action rows only** in `mode: auto`. Skip rows aggregate into Step 6 summary lines instead of filling the table. This keeps PR bodies legible: a typical nightly PR is 1–5 action rows + a short Step 6 summary, not 25–35 rows of mostly-Skip noise.
+
+**Mode dependency:**
+
+- **`mode: auto` (nightly Routine PR bodies):** Step 3 table includes ONLY rows where `Classification` is `Backport`, `Forward-port`, or `Flag`. Every Skip row — including Type-gated, Class-gated: context, Project-only-substitution, Both-modified-in-auto, hash-equal logic files, and unmatched-skips — is omitted from the table and aggregated in Step 6 below. Already-proposed is the lone Skip exception: those rows STAY in the table with their PR URL because the reviewer needs to see the existing-PR link inline.
+- **`mode: interactive` (manual `/push-seeds` / `/pull-seeds`):** Step 3 table includes ALL classified rows (Skip + Backport + Forward-port + Flag). The human is driving and wants full visibility for the prompt loop.
+
+**Table shape (both modes):**
 
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
 
-`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`, `[placeholder] filled with "We write in second person..."`). `Provenance` is one of `Project-only` / `Template-only` / `Both-modified` / `Type-gated` / `Already-proposed` / `Class-gated: context` / `Class: logic`. `Classification` is `Skip` / `Backport` / `Flag`. `Action` is what you actually did/will do (`Skipped`, `Forward-ported`, `Backported`, `Flagged in PR body`, `logic-drift — file requires sync`).
+`Hunk` is a one-line summary of the changed content (e.g. `"## Voice" body diverged`, `new "## Color tokens" section`). For whole-file logic-drift rows, `Hunk` is `hash mismatch`. For Already-proposed, `Hunk` is `(file)`.
 
-For files dropped from scope by the Step 1 type gate, emit one row per gated file:
+`Provenance` is one of `Project-only` / `Template-only` / `Both-modified` / `Class: logic` / `Already-proposed`. (Type-gated and Class-gated: context never appear in the auto-mode table — they're Step 6 summaries.)
 
-| File | Hunk | Provenance | Classification | Action |
-|------|------|------------|----------------|--------|
-| `agents/ui-reviewer.md` | (file) | Type-gated | Skip | Skipped — project type `tool`, file applies to `[webapp]` |
+`Classification` is `Backport` / `Forward-port` / `Flag` / `Skip` (Skip only in interactive mode, except for Already-proposed).
 
-For files dropped from scope by the Step 1.4 file-class lookup as `context` class, emit one row per dropped file:
+`Action` is what you did or will do (`Forward-ported`, `Backported`, `Flagged in PR body`, `logic-drift — file requires sync`, or `Skipped — already proposed on <URL>`).
 
-| File | Hunk | Provenance | Classification | Action |
-|------|------|------------|----------------|--------|
-| `dev/claude/docs/SPEC.md` | (file) | Class-gated: context | Skip | Skipped — class: context (project-owned, never syncs) |
-
-For files matched as `logic` class at Step 1.4 with mismatched hashes, emit one row per file:
+**Logic-drift example:**
 
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
 | `dev/claude/skills/its-alive/SKILL.md` | hash mismatch | Class: logic | Flag | logic-drift — file requires sync |
 
-For files dropped from scope by the Step 1.5 duplicate-PR check, emit one row per dropped file:
+**Already-proposed example (table-resident even in auto mode):**
 
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
 | `dev/claude/skills/its-alive/SKILL.md` | (file) | Already-proposed | Skip | Skipped — already proposed on https://github.com/mobiustripper42/seeds/pull/39 |
 
-Type-gated, Class-gated, and Already-proposed rows all carry `Hunk: (file)` (whole-file gates, not hunk classifications). Logic-drift rows carry `Hunk: hash mismatch` to make the failure mode legible at a glance. Type-gated `Action` includes both the project's type and the manifest's allowed list. Already-proposed `Action` includes the existing PR's URL so the reviewer can compare. For `hybrid` class files, hunk classification proceeds normally — the file's hybrid status is implied by registry membership and doesn't need a per-row Provenance value.
+**Empty action-row table:** if no action rows exist, write `_No action rows — see Step 6 for skip summary._` and proceed to Step 6.
 
-In `mode: interactive`:
-- For each **backport** (push) / **forward-port** (pull), show the diff hunk and ask: "Apply? (y/n)"
+**Mode: interactive prompt loop:**
+- For each **backport** / **forward-port**, show the diff hunk and ask: "Apply? (y/n)"
 - For each **pattern flag**, describe what you're seeing and ask: "Keep watching, or act now?"
 - For each **logic-drift** row, show the file paths and ask: "Sync the project file from template (or vice versa)? (y/n)"
 - Wait for user response on each before proceeding.
 
-In `mode: auto`:
-- Emit the table to stdout but do NOT prompt.
-- Apply every **backport**/**forward-port** automatically in Step 4.
-- Apply every **logic-drift** automatically in Step 4 (full-file overwrite).
+**Mode: auto:**
+- Emit the action-row table; do NOT prompt.
+- Apply every **backport**/**forward-port**/**logic-drift** automatically in Step 4.
 - Pattern flags are recorded in Step 6 only — never applied.
 - Continue straight through to Step 4.
 
@@ -244,12 +244,25 @@ Apply if approved.
 
 ### Step 6 — Report
 
-Output:
-- Files updated (in `<seeds>/` for push, in the project for pull)
-- Bug fixes applied (or flagged) on the non-applying side
-- Changes skipped and why — include Already-proposed entries with the existing PR URL, Type-gated entries with the project type + allowed list, Class-gated entries with the class, and Project-only / Both-modified skips
-- Patterns flagged for future `shared/` extraction (if any)
-- File-class lookup fallback note if `routine-config.yaml` or the `file-classes:` block was unavailable
+Output the following sections in order. Sections with no entries are omitted entirely — do not emit empty section headers.
+
+**Files updated.** List with one line per file noting hunks touched (PUSH: seeds-side; PULL: project-side). For logic-drift, write `<file> — full-file overwrite from <source-side>`.
+
+**Bug fixes flagged on the non-applying side** (Step 5 output). One line per file.
+
+**Skip summary.** Aggregate Skip-class drops into one line per category. Omit categories with zero entries. Format:
+
+- `Skipped (class:context, N files): <comma-separated list>` — files dropped by Step 1.4 file-class lookup as `context`.
+- `Skipped (type-gated, project type: <type>): <comma-separated list with allowed-types in parens>` — files dropped by Step 1 type-manifest.
+- `Skipped (logic, hash-equal, N files)` — count only; do not list. The absence-is-the-signal rule (Step 2) means in-sync logic files don't need enumeration.
+- `Skipped (already-proposed, N file): <comma-separated list with PR URLs>` — also stays as table rows per Step 3, surfaced here as a count for grep.
+- For each hybrid/unmatched file with Skip hunks (in mode:auto), one line per file: `<file>: <N> Project-only hunks skipped (substitutions/customization)` and/or `<file>: <N> Both-modified hunks skipped (mode:auto default)`. Aggregate by file, not by hunk — don't enumerate each hunk individually.
+
+**Patterns flagged** for future `shared/` extraction (if any).
+
+**Operational notes.** Any fallback messages from Steps 1.4 or 1.5 (e.g. `File-class lookup skipped — routine-config.yaml unavailable.`, `Duplicate-PR check skipped — list_pull_requests unavailable.`).
+
+In `mode: interactive`, the Step 6 report comes AFTER the prompt loop completes. In `mode: auto`, Step 6 is the closing block of the PR body — keep it tight; the headline is the (smaller) Step 3 action-row table above.
 
 Remind the user to review the diff before committing. For PUSH, that's the seeds repo; for PULL, the project. Either way, the calling skill (`/push-seeds` or `/pull-seeds`) handles the commit step — you only apply the file edits.
 
@@ -258,6 +271,7 @@ Remind the user to review the diff before committing. For PUSH, that's the seeds
 - Default to skepticism on backports. It's easier to add to the template later than to unwind a pollution event. Even more so in `mode: auto` — when you can't ask, default to skip.
 - Never act on "pattern flags" without explicit approval. The whole reason `shared/` doesn't exist yet is that premature extraction is worse than duplication. In `mode: auto`, "explicit approval" is impossible by definition — flags get reported, never acted on.
 - In `mode: interactive`, when classifying, if you're not sure whether something is structural or project-specific, ask before deciding. In `mode: auto`, default to skip and surface the ambiguity in the Step 6 report so the PR reviewer can make the call.
+- **Silence is signal in `mode: auto`.** A nightly PR's action-row table being empty (or near-empty) is the working state, not a bug. The Step 6 summary tells the reviewer what was checked and dropped; the table tells them what to act on. Do not emit "Equal" / "No action" / "Match" rows to demonstrate completeness — completeness is implied by the agent running at all.
 - Be specific in your output. File paths, line numbers, exact hunks. Don't paraphrase diffs.
 - One run, one commit per repo per direction. Don't mix backports and bug fixes in the same commit.
 
