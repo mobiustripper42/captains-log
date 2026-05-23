@@ -1,20 +1,26 @@
 // Set BEFORE imports so weather.js sees it from the first call.
 process.env.CAPTAINSLOG_NO_WEATHER = '1';
+process.env.CAPTAINSLOG_NO_HAIKU = '1';
+process.env.CAPTAINSLOG_NO_GH_FILE = '1';
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   Y_PATTERN,
   SLASH_COMMAND_PATTERN,
+  FEEDBACK_PATTERN,
+  FILE_PATTERN,
   formatConfirmation,
   formatDrillConfirmation,
   fileTrip,
   fileDrill,
   routeParsed,
+  handleSlash,
 } from '../lib/purser.js';
 import { load as loadState, save as saveState } from '../lib/state.js';
 import * as trips from '../lib/trips.js';
 import * as drills from '../lib/drills.js';
+import * as feedback from '../lib/feedback.js';
 import { openDb } from '../lib/db.js';
 import { migrate } from '../lib/migrate.js';
 import { _resetCacheForTests as resetRosters } from '../lib/rosters.js';
@@ -695,4 +701,122 @@ test('fileDrill keeps unknown crew names verbatim', async () => {
     source: 'telegram',
   });
   assert.equal(drills.findById(db, id).crew_present_text, 'Stranger McTest');
+});
+
+// --- Slash commands (3.5) ---
+
+const owner = { name: 'Eric', role: 'owner' };
+const nonOwner = { name: 'Drew', role: 'captain' };
+
+// SLASH_COMMAND_PATTERN gates entry to handleSlash; sub-patterns dispatch inside.
+
+test('FEEDBACK_PATTERN matches /feedback alone, /feedback <text>, multi-line, and @botname', () => {
+  assert.ok(FEEDBACK_PATTERN.test('/feedback'));
+  assert.ok(FEEDBACK_PATTERN.test('/feedback fenders need replacement'));
+  assert.ok(FEEDBACK_PATTERN.test('/feedback@CaptainsLogBot fenders cracked'));
+  const multi = '/feedback line one\nline two';
+  assert.ok(FEEDBACK_PATTERN.test(multi));
+  const m = multi.match(FEEDBACK_PATTERN);
+  assert.equal(m[1], 'line one\nline two');
+});
+
+test('FILE_PATTERN matches /file and /file@botname', () => {
+  assert.ok(FILE_PATTERN.test('/file'));
+  assert.ok(FILE_PATTERN.test('/file@CaptainsLogBot'));
+  assert.ok(!FILE_PATTERN.test('/file some args'));
+});
+
+test('handleSlash /feedback <text> as owner creates pending row, replies with draft', async () => {
+  const db = freshDb();
+  const result = await handleSlash({
+    db,
+    chatId: '1',
+    captain: owner,
+    body: '/feedback boat needs new fenders',
+  });
+  assert.match(result.reply, /Draft issue, Eric:/);
+  assert.match(result.reply, /Send \/file to submit/);
+  const row = feedback.findLatestPending(db, '1');
+  assert.ok(row);
+  assert.equal(row.body, 'boat needs new fenders');
+  assert.equal(row.status, 'pending');
+  assert.ok(row.drafted_issue_body.includes('boat needs new fenders'));
+});
+
+test('handleSlash /feedback as non-owner is rejected, no row written', async () => {
+  const db = freshDb();
+  const result = await handleSlash({
+    db,
+    chatId: '2',
+    captain: nonOwner,
+    body: '/feedback fenders cracked',
+  });
+  assert.match(result.reply, /owner-only/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM feedback').get().n, 0);
+});
+
+test('handleSlash /feedback with no body nudges the captain', async () => {
+  const db = freshDb();
+  const result = await handleSlash({ db, chatId: '1', captain: owner, body: '/feedback' });
+  assert.match(result.reply, /followed by your observation/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM feedback').get().n, 0);
+});
+
+test('handleSlash /feedback cancel marks most recent pending as cancelled', async () => {
+  const db = freshDb();
+  await handleSlash({ db, chatId: '1', captain: owner, body: '/feedback first observation' });
+  await handleSlash({ db, chatId: '1', captain: owner, body: '/feedback second observation' });
+  const result = await handleSlash({ db, chatId: '1', captain: owner, body: '/feedback cancel' });
+  assert.match(result.reply, /Cancelled/);
+  const rows = db.prepare("SELECT body, status FROM feedback WHERE submitted_by_chat_id = '1' ORDER BY id").all();
+  assert.equal(rows[0].status, 'pending');
+  assert.equal(rows[1].status, 'cancelled');
+});
+
+test('handleSlash /feedback cancel with nothing pending returns friendly reply', async () => {
+  const db = freshDb();
+  const result = await handleSlash({ db, chatId: '1', captain: owner, body: '/feedback cancel' });
+  assert.match(result.reply, /Nothing pending to cancel/);
+});
+
+test('handleSlash /file files the most recent pending and marks it filed with URL', async () => {
+  const db = freshDb();
+  await handleSlash({ db, chatId: '1', captain: owner, body: '/feedback VHF cutting out on ch 16' });
+  const result = await handleSlash({ db, chatId: '1', captain: owner, body: '/file' });
+  assert.match(result.reply, /^Filed: https:\/\//);
+  const row = feedback.findLatestPending(db, '1');
+  assert.equal(row, null, 'no more pending after filing');
+  const filed = db.prepare("SELECT * FROM feedback WHERE status = 'filed'").get();
+  assert.ok(filed);
+  assert.ok(filed.github_issue_url.startsWith('https://'));
+});
+
+test('handleSlash /file with nothing pending returns friendly reply', async () => {
+  const db = freshDb();
+  const result = await handleSlash({ db, chatId: '1', captain: owner, body: '/file' });
+  assert.match(result.reply, /Nothing pending to file/);
+});
+
+test('handleSlash /file as non-owner is rejected', async () => {
+  const db = freshDb();
+  const result = await handleSlash({ db, chatId: '2', captain: nonOwner, body: '/file' });
+  assert.match(result.reply, /owner-only/);
+});
+
+test('handleSlash /feedback does not touch awaiting_confirmation state (regression)', async () => {
+  const db = freshDb();
+  // Pre-seed a trip-confirmation state, then run /feedback.
+  saveState(db, '1', {
+    status: 'awaiting_confirmation',
+    kind: 'trip',
+    raw_message: '3 trips, 30 pax',
+    parsed: { boat: 'Brewboat', trip_count: 3 },
+    received_at: '2026-05-23T20:00:00Z',
+    correction_count: 0,
+  });
+  await handleSlash({ db, chatId: '1', captain: owner, body: '/feedback boat needs new fenders' });
+  const s = loadState(db, '1');
+  assert.equal(s.status, 'awaiting_confirmation', 'trip confirmation state must survive /feedback');
+  assert.equal(s.kind, 'trip');
+  assert.equal(s.raw_message, '3 trips, 30 pax');
 });
