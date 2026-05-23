@@ -49,6 +49,11 @@ captainslog/
    npm install
    ```
 
+   The `/feedback` + `/file` slash commands shell out to the GitHub CLI to open
+   issues. Install `gh` and authenticate it once (`gh auth login`). Issues are
+   filed to `mobiustripper42/captains-log` by default — override with
+   `CAPTAINSLOG_FEEDBACK_REPO=owner/repo` in `.env` if needed.
+
 2. **Fill `.env`.** Copy the template and edit:
    ```bash
    cp .env.example .env
