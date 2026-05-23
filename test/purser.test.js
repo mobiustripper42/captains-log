@@ -651,6 +651,28 @@ test('fileDrill DRILL_TYPE_MISSING when drill_type is null', async () => {
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drills').get().n, 0);
 });
 
+test('fileDrill DRILL_TYPE_MISSING when drill_type is out of enum (e.g. Haiku hallucination)', async () => {
+  const db = freshDb();
+  await assert.rejects(
+    () =>
+      fileDrill({
+        db,
+        chatId: '1',
+        captain,
+        state: drillStateWith({ drill_type: 'manoverboard' }),
+        source: 'telegram',
+      }),
+    (err) => err.code === 'DRILL_TYPE_MISSING',
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drills').get().n, 0);
+});
+
+test('formatDrillConfirmation warns when drill_type is out of enum', () => {
+  const msg = formatDrillConfirmation('Eric', { ...drillFull, drill_type: 'MOB' });
+  assert.ok(msg.includes('⚠ Drill type not provided'));
+  assert.ok(!msg.includes('Man overboard'));
+});
+
 test('fileDrill stores null crew_present_text when none provided', async () => {
   const db = freshDb();
   const { id } = await fileDrill({
