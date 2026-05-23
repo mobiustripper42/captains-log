@@ -54,6 +54,11 @@ test('SLASH_COMMAND_PATTERN matches /feedback and /file with or without args', (
   assert.ok(SLASH_COMMAND_PATTERN.test('/FEEDBACK something'));
 });
 
+test('SLASH_COMMAND_PATTERN tolerates Telegram @botname suffix', () => {
+  assert.ok(SLASH_COMMAND_PATTERN.test('/file@CaptainsLogBot'));
+  assert.ok(SLASH_COMMAND_PATTERN.test('/feedback@captains_log_bot the boat was wrong'));
+});
+
 test('SLASH_COMMAND_PATTERN rejects look-alike text', () => {
   assert.ok(!SLASH_COMMAND_PATTERN.test('feedback'));
   assert.ok(!SLASH_COMMAND_PATTERN.test('/files-of-foo'));
