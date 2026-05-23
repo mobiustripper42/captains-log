@@ -174,7 +174,7 @@ transcript: <TRANSCRIPT>
 **Context:**
 ```
 
-Commit and push **on the sessions branch** using `git -C` to target the worktree directory (no `cd` — shell state doesn't persist between Bash calls):
+Commit and push **on the sessions branch** using `git -C` to target the worktree directory (no `cd` — shell state doesn't persist between Bash tool calls):
 
 ```
 git -C .sessions-worktree add sessions/$(basename "$SESSION_FILE")
