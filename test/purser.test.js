@@ -3,9 +3,18 @@ process.env.CAPTAINSLOG_NO_WEATHER = '1';
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Y_PATTERN, SLASH_COMMAND_PATTERN, formatConfirmation, fileTrip, routeParsed } from '../lib/purser.js';
-import { load as loadState } from '../lib/state.js';
+import {
+  Y_PATTERN,
+  SLASH_COMMAND_PATTERN,
+  formatConfirmation,
+  formatDrillConfirmation,
+  fileTrip,
+  fileDrill,
+  routeParsed,
+} from '../lib/purser.js';
+import { load as loadState, save as saveState } from '../lib/state.js';
 import * as trips from '../lib/trips.js';
+import * as drills from '../lib/drills.js';
 import { openDb } from '../lib/db.js';
 import { migrate } from '../lib/migrate.js';
 import { _resetCacheForTests as resetRosters } from '../lib/rosters.js';
@@ -460,19 +469,46 @@ test('fileTrip with open_trip_id does not require parsed.boat (slug already on r
 
 // --- routeParsed — intent dispatch ---
 
-test('routeParsed intent=drill returns stub reply, no row, no state', async () => {
+test('routeParsed intent=drill saves awaiting_confirmation drill state + returns drill confirmation', async () => {
   const db = freshDb();
   const result = await routeParsed({
     db,
     chatId: '1',
     captain,
-    parsed: { ...baseParsed, intent: 'drill', sub_intent: null, notes: 'ran man-overboard drill' },
-    rawText: 'just ran an MOB drill with the crew',
+    parsed: {
+      ...baseParsed,
+      intent: 'drill',
+      sub_intent: null,
+      drill_type: 'mob',
+      crew_present: ['Mike'],
+      notes: 'ran man-overboard drill',
+    },
+    rawText: 'just ran an MOB drill with Mike',
     receivedAt: '2026-05-23T17:00:00Z',
   });
-  assert.match(result.reply, /Drill capture is coming in 3\.4/);
-  assert.equal(result.state, null);
+  assert.equal(result.state, 'awaiting_confirmation');
+  assert.match(result.reply, /Confirming your drill log/);
+  assert.match(result.reply, /Man overboard drill/);
+  const s = loadState(db, '1');
+  assert.equal(s.status, 'awaiting_confirmation');
+  assert.equal(s.kind, 'drill');
+  assert.equal(s.parsed.drill_type, 'mob');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drills').get().n, 0, 'no drill row until Y');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trips').get().n, 0);
+});
+
+test('routeParsed intent=drill unknown boat returns nudge, no state', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, intent: 'drill', boat: 'Mystery Boat', drill_type: 'fire' },
+    rawText: 'fire drill on Mystery',
+    receivedAt: '2026-05-23T17:00:00Z',
+  });
+  assert.match(result.reply, /don't recognize/);
+  assert.equal(result.state, null);
   assert.equal(loadState(db, '1').status, undefined);
 });
 
@@ -521,4 +557,120 @@ test('routeParsed missing intent defaults to trip (backwards-compat)', async () 
   });
   assert.equal(result.state, 'awaiting_confirmation');
   assert.match(result.reply, /Confirming your log/);
+  assert.equal(loadState(db, '1').kind, 'trip');
+});
+
+// --- formatDrillConfirmation ---
+
+const drillFull = {
+  boat: 'Brewboat',
+  drill_type: 'mob',
+  crew_present: ['Mike', 'Drew'],
+  notes: 'good response time',
+};
+
+test('formatDrillConfirmation happy path includes type label, boat, crew, notes', () => {
+  const msg = formatDrillConfirmation('Eric', drillFull);
+  assert.ok(msg.startsWith('Confirming your drill log, Eric:'));
+  assert.ok(msg.includes('Man overboard drill'));
+  assert.ok(msg.includes('Brewboat'));
+  assert.ok(msg.includes('Crew: Mike, Drew'));
+  assert.ok(msg.includes('Notes: good response time'));
+  assert.ok(msg.includes('Reply Y to file'));
+});
+
+test('formatDrillConfirmation warns when drill_type is missing', () => {
+  const msg = formatDrillConfirmation('Eric', { ...drillFull, drill_type: null });
+  assert.ok(msg.includes('⚠ Drill type not provided'));
+});
+
+test('formatDrillConfirmation labels each drill_type', () => {
+  for (const [t, label] of [
+    ['abandon_ship', 'Abandon ship'],
+    ['fire', 'Fire'],
+    ['crew_emergency', 'Crew emergency'],
+  ]) {
+    const msg = formatDrillConfirmation('Eric', { ...drillFull, drill_type: t });
+    assert.ok(msg.includes(`${label} drill`), `expected "${label} drill" for ${t}`);
+  }
+});
+
+// --- fileDrill ---
+
+function drillStateWith(parsedOverrides) {
+  return {
+    kind: 'drill',
+    parsed: {
+      boat: 'Brewboat',
+      drill_type: 'mob',
+      crew_present: ['Mike'],
+      notes: null,
+      ...parsedOverrides,
+    },
+    raw_message: 'MOB drill with Mike',
+    received_at: '2026-05-23T17:00:00Z',
+    correction_count: 0,
+  };
+}
+
+test('fileDrill inserts a drill row with resolved crew text', async () => {
+  const db = freshDb();
+  const { id } = await fileDrill({
+    db,
+    chatId: '1',
+    captain,
+    state: drillStateWith({}),
+    source: 'telegram',
+  });
+  const row = drills.findById(db, id);
+  assert.ok(row);
+  assert.equal(row.drill_type, 'mob');
+  assert.equal(row.boat_slug, 'brewboat');
+  assert.equal(row.captain_chat_id, '1');
+  assert.equal(row.crew_present_text, 'Mike');
+  assert.ok(row.drill_date);
+  const parsed = JSON.parse(row.parse_json);
+  assert.equal(parsed.source, 'telegram');
+});
+
+test('fileDrill UNKNOWN_BOAT on unrecognized boat, no row written', async () => {
+  const db = freshDb();
+  await assert.rejects(
+    () => fileDrill({ db, chatId: '1', captain, state: drillStateWith({ boat: 'Mystery' }), source: 'telegram' }),
+    (err) => err.code === 'UNKNOWN_BOAT' && err.boatName === 'Mystery',
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drills').get().n, 0);
+});
+
+test('fileDrill DRILL_TYPE_MISSING when drill_type is null', async () => {
+  const db = freshDb();
+  await assert.rejects(
+    () => fileDrill({ db, chatId: '1', captain, state: drillStateWith({ drill_type: null }), source: 'telegram' }),
+    (err) => err.code === 'DRILL_TYPE_MISSING',
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drills').get().n, 0);
+});
+
+test('fileDrill stores null crew_present_text when none provided', async () => {
+  const db = freshDb();
+  const { id } = await fileDrill({
+    db,
+    chatId: '1',
+    captain,
+    state: drillStateWith({ crew_present: null }),
+    source: 'telegram',
+  });
+  assert.equal(drills.findById(db, id).crew_present_text, null);
+});
+
+test('fileDrill keeps unknown crew names verbatim', async () => {
+  const db = freshDb();
+  const { id } = await fileDrill({
+    db,
+    chatId: '1',
+    captain,
+    state: drillStateWith({ crew_present: ['Stranger McTest'] }),
+    source: 'telegram',
+  });
+  assert.equal(drills.findById(db, id).crew_present_text, 'Stranger McTest');
 });
