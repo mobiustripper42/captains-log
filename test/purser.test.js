@@ -3,7 +3,7 @@ process.env.CAPTAINSLOG_NO_WEATHER = '1';
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Y_PATTERN, formatConfirmation, fileTrip, routeParsed } from '../lib/purser.js';
+import { Y_PATTERN, SLASH_COMMAND_PATTERN, formatConfirmation, fileTrip, routeParsed } from '../lib/purser.js';
 import { load as loadState } from '../lib/state.js';
 import * as trips from '../lib/trips.js';
 import { openDb } from '../lib/db.js';
@@ -43,6 +43,23 @@ test('Y_PATTERN rejects corrections and other text', () => {
   assert.ok(!Y_PATTERN.test('yeah but the boat was blue'));
   assert.ok(!Y_PATTERN.test(''));
   assert.ok(!Y_PATTERN.test('nope'));
+});
+
+// --- SLASH_COMMAND_PATTERN ---
+
+test('SLASH_COMMAND_PATTERN matches /feedback and /file with or without args', () => {
+  assert.ok(SLASH_COMMAND_PATTERN.test('/feedback'));
+  assert.ok(SLASH_COMMAND_PATTERN.test('/feedback the parser missed a name'));
+  assert.ok(SLASH_COMMAND_PATTERN.test('/file'));
+  assert.ok(SLASH_COMMAND_PATTERN.test('/FEEDBACK something'));
+});
+
+test('SLASH_COMMAND_PATTERN rejects look-alike text', () => {
+  assert.ok(!SLASH_COMMAND_PATTERN.test('feedback'));
+  assert.ok(!SLASH_COMMAND_PATTERN.test('/files-of-foo'));
+  assert.ok(!SLASH_COMMAND_PATTERN.test('/feedbacking'));
+  assert.ok(!SLASH_COMMAND_PATTERN.test('the /feedback comes later'));
+  assert.ok(!SLASH_COMMAND_PATTERN.test(''));
 });
 
 // --- formatConfirmation ---
@@ -434,4 +451,69 @@ test('fileTrip with open_trip_id does not require parsed.boat (slug already on r
   const { id } = await fileTrip({ db, chatId: '1', captain, state, source: 'telegram' });
   assert.equal(id, openId);
   assert.equal(db.prepare('SELECT status FROM trips WHERE id = ?').get(openId).status, 'confirmed');
+});
+
+// --- routeParsed — intent dispatch ---
+
+test('routeParsed intent=drill returns stub reply, no row, no state', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, intent: 'drill', sub_intent: null, notes: 'ran man-overboard drill' },
+    rawText: 'just ran an MOB drill with the crew',
+    receivedAt: '2026-05-23T17:00:00Z',
+  });
+  assert.match(result.reply, /Drill capture is coming in 3\.4/);
+  assert.equal(result.state, null);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trips').get().n, 0);
+  assert.equal(loadState(db, '1').status, undefined);
+});
+
+test('routeParsed intent=unknown returns nudge reply, no row, no state', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, intent: 'unknown', sub_intent: null },
+    rawText: 'gonna grab coffee, brb',
+    receivedAt: '2026-05-23T17:00:00Z',
+  });
+  assert.match(result.reply, /didn't catch what that was about/);
+  assert.equal(result.state, null);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trips').get().n, 0);
+  assert.equal(loadState(db, '1').status, undefined);
+});
+
+test('routeParsed intent=trip explicit routes through sub_intent branches as before', async () => {
+  const db = freshDb();
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed: { ...baseParsed, intent: 'trip', sub_intent: 'starting', trip_start: '1:00pm' },
+    rawText: 'starting Cuyahoga in Brewboat',
+    receivedAt: '2026-05-23T17:00:00Z',
+  });
+  assert.equal(result.state, null);
+  assert.match(result.reply, /Got it/);
+  assert.ok(trips.findActive(db, '1'), 'open trip row created via trip intent');
+});
+
+test('routeParsed missing intent defaults to trip (backwards-compat)', async () => {
+  const db = freshDb();
+  const parsed = { ...baseParsed, total_passengers: 30, trip_count: 2 };
+  delete parsed.intent;
+  const result = await routeParsed({
+    db,
+    chatId: '1',
+    captain,
+    parsed,
+    rawText: '2 trips, 30 pax',
+    receivedAt: '2026-05-23T20:00:00Z',
+  });
+  assert.equal(result.state, 'awaiting_confirmation');
+  assert.match(result.reply, /Confirming your log/);
 });
