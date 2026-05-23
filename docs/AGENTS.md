@@ -192,7 +192,7 @@ Slash commands manage session lifecycle. Time tracking is automatic.
 ## Agent Summary
 
 | Agent/Skill | Model | When | Purpose |
-|-------------|-------|------|------|
+|-------------|-------|------|---------|
 | @architect | Opus | Before design decisions | Keep architecture coherent |
 | @code-review | Sonnet | After commits, optional | Catch issues early |
 | @pm | Sonnet | Start/end of sessions | Track progress, flag risks |
