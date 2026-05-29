@@ -122,7 +122,11 @@ Behavior forks on the file's class as resolved in Step 1.4:
 
 - **`logic` class:** compare normalized file hashes (strip trailing whitespace, normalize line endings to LF).
   - **If equal — emit nothing.** No Step 3 row, no Step 6 entry. The file is in sync; absence is the report. Do not emit "no action (hash match)" or "Equal" rows — silence is the signal.
-  - If unequal, emit a single Step 3 row: `Hunk: hash mismatch`, `Provenance: Class: logic`, `Classification: Flag`, `Action: logic-drift — file requires sync`. No hunk breakdown. No LLM judgment. Apply behavior in Step 4 differs from hunk-level apply (see Step 4 below).
+  - **If unequal — direction-aware behavior:**
+    - **PULL (seeds → project):** emit a single Step 3 row: `Hunk: hash mismatch`, `Provenance: Class: logic`, `Classification: Forward-port`, `Action: logic-drift — full-file overwrite from seeds`. Step 4 applies the overwrite from seeds onto the project file. Logic files are canonically maintained in seeds; seeds is the source of truth in this direction.
+    - **PUSH (project → seeds) in `mode: auto`:** emit a single Step 3 row: `Hunk: hash mismatch`, `Provenance: Class: logic`, `Classification: Skip`, `Action: logic-drift skipped (PUSH+auto) — project is likely behind seeds; run /pull-seeds on the project to bring it forward`. **Do not overwrite seeds.** `mode: auto` cannot distinguish "genuine project-side logic improvement worth backporting" from "project is just stale" — and the latter is overwhelmingly the common case because logic files only change in seeds first. Defaulting to skip + the /pull-seeds recommendation prevents the auto-Routine from regressing seeds to an older project version. The 2026-05-27 sailbook opposing-PR incident — where downstream and upstream auto-Routines each proposed a full-file overwrite of the same three logic files in opposite directions on tiny whitespace differences — is what this skip rule prevents. If a project-side logic improvement actually needs to flow upstream, use interactive `/push-seeds`; mode: auto's safety net is more valuable than rare-case automation here.
+    - **PUSH in `mode: interactive`:** emit `Hunk: hash mismatch`, `Provenance: Class: logic`, `Classification: Flag`, `Action: logic-drift — choose direction at prompt`. Step 3's interactive prompt loop will ask the user which side is canonical (project newer / seeds newer / skip) and Step 4 applies accordingly. The human is driving — they decide.
+  - No hunk breakdown either way. No LLM judgment. Apply behavior is in Step 4.
 - **`context` class:** no work — the pair was already dropped from scope at Step 1.4. Aggregated in Step 6, no Step 3 row.
 - **`hybrid` class or unmatched:** hunk-classify as below. The file's hybrid status is implicit in registry membership and doesn't add a per-hunk Provenance value.
 
@@ -165,7 +169,7 @@ The classification table contains **action rows only** in `mode: auto`. Skip row
 
 **Mode dependency:**
 
-- **`mode: auto` (nightly Routine PR bodies):** Step 3 table includes ONLY rows where `Classification` is `Backport`, `Forward-port`, or `Flag`. Every Skip row — including Type-gated, Class-gated: context, Project-only-substitution, Both-modified-in-auto, hash-equal logic files, and unmatched-skips — is omitted from the table and aggregated in Step 6 below. Already-proposed is the lone Skip exception: those rows STAY in the table with their PR URL because the reviewer needs to see the existing-PR link inline.
+- **`mode: auto` (nightly Routine PR bodies):** Step 3 table includes ONLY rows where `Classification` is `Backport`, `Forward-port`, or `Flag`. Every Skip row — including Type-gated, Class-gated: context, Project-only-substitution, Both-modified-in-auto, hash-equal logic files, **logic-drift on PUSH (skipped per Step 2)**, and unmatched-skips — is omitted from the table and aggregated in Step 6 below. Already-proposed is the lone Skip exception: those rows STAY in the table with their PR URL because the reviewer needs to see the existing-PR link inline.
 - **`mode: interactive` (manual `/push-seeds` / `/pull-seeds`):** Step 3 table includes ALL classified rows (Skip + Backport + Forward-port + Flag). The human is driving and wants full visibility for the prompt loop.
 
 **Table shape (both modes):**
@@ -179,13 +183,13 @@ The classification table contains **action rows only** in `mode: auto`. Skip row
 
 `Classification` is `Backport` / `Forward-port` / `Flag` / `Skip` (Skip only in interactive mode, except for Already-proposed).
 
-`Action` is what you did or will do (`Forward-ported`, `Backported`, `Flagged in PR body`, `logic-drift — file requires sync`, or `Skipped — already proposed on <URL>`).
+`Action` is what you did or will do (`Forward-ported`, `Backported`, `Flagged in PR body`, `logic-drift — full-file overwrite from seeds` (PULL), or `Skipped — already proposed on <URL>`).
 
-**Logic-drift example:**
+**Logic-drift example (PULL, mode: auto):**
 
 | File | Hunk | Provenance | Classification | Action |
 |------|------|------------|----------------|--------|
-| `dev/claude/skills/its-alive/SKILL.md` | hash mismatch | Class: logic | Flag | logic-drift — file requires sync |
+| `.claude/skills/its-alive/SKILL.md` | hash mismatch | Class: logic | Forward-port | logic-drift — full-file overwrite from seeds |
 
 **Already-proposed example (table-resident even in auto mode):**
 
@@ -198,12 +202,14 @@ The classification table contains **action rows only** in `mode: auto`. Skip row
 **Mode: interactive prompt loop:**
 - For each **backport** / **forward-port**, show the diff hunk and ask: "Apply? (y/n)"
 - For each **pattern flag**, describe what you're seeing and ask: "Keep watching, or act now?"
-- For each **logic-drift** row, show the file paths and ask: "Sync the project file from template (or vice versa)? (y/n)"
+- For each **logic-drift Flag row in PUSH direction**, show the file paths + first-line diff preview and ask: "Project is newer (push to seeds) / Seeds is newer (pull to project) / Skip?"
+- For each **logic-drift Forward-port row in PULL direction**, show the file paths and ask: "Confirm overwrite project file from seeds? (y/n)"
 - Wait for user response on each before proceeding.
 
 **Mode: auto:**
 - Emit the action-row table; do NOT prompt.
-- Apply every **backport**/**forward-port**/**logic-drift** automatically in Step 4.
+- Apply every **backport**/**forward-port**/**logic-drift Forward-port** automatically in Step 4.
+- **Logic-drift Skip rows (PUSH+auto)** are surfaced in Step 6 only — no Step 4 apply.
 - Pattern flags are recorded in Step 6 only — never applied.
 - Continue straight through to Step 4.
 
@@ -229,9 +235,15 @@ The apply target depends on direction:
    - Project-specific paths stay as-is
 4. Write the updated project file
 
-**Logic-drift apply (both directions):** for files matched as `logic` class at Step 1.4 with mismatched hashes, the apply is a **full-file overwrite** from the source side, not a hunk-level patch. PUSH copies the project file over the template (after the project file's content was certified clean by the user); PULL copies the template over the project file. There's no substitution-preservation step — logic files have no `[placeholder]` tokens or project-specific concretions by definition (that's what makes them logic-class). If a logic file picks up project-specific content over time, the right fix is to either (a) demote it from `logic` to `hybrid` in `routine-config.yaml` and refactor, or (b) reset it back to template — never partial-apply.
+**Logic-drift apply (direction- and mode-aware):**
 
-The classifier is symmetric; the substitution-preservation logic flips. In push, you generify; in pull, you respect existing concretions. Logic-drift bypasses both — it's a wholesale sync.
+- **PULL (seeds → project), any mode:** full-file overwrite. Copy the seeds file content directly over the project file. No substitution-preservation — logic files have no `[placeholder]` tokens or project-specific concretions by definition (that's what makes them logic-class).
+- **PUSH (project → seeds) in `mode: auto`:** **do not apply.** The Step 2 rule classified this as Skip with a Step 6 surface. The reasoning is that `mode: auto` cannot distinguish "real upstream improvement" from "project is stale" — and the latter is far more common — so silently overwriting seeds with a project's older logic file would regress the template. The Routine PR opens with a Step 6 note recommending the user run `/pull-seeds` on the project to bring it current with seeds. If the project actually has a logic improvement worth pushing, use interactive `/push-seeds`.
+- **PUSH (project → seeds) in `mode: interactive`:** apply per user response to the Step 3 prompt. If user says "project is newer" → copy project file over seeds. If "seeds is newer" → copy seeds file over project (effectively a PULL in disguise; surface this inversion explicitly in the Step 6 report so it doesn't look like a misclassification). If "skip" → no-op.
+
+If a logic file picks up project-specific content over time, the right fix is to either (a) demote it from `logic` to `hybrid` in `routine-config.yaml` and refactor, or (b) reset it back to template — never partial-apply.
+
+The classifier is symmetric; the substitution-preservation logic flips. In push, you generify; in pull, you respect existing concretions. Logic-drift bypasses both — it's a wholesale sync (or, in PUSH+auto, no sync at all).
 
 ### Step 5 — Bug check
 
@@ -255,6 +267,7 @@ Output the following sections in order. Sections with no entries are omitted ent
 - `Skipped (class:context, N files): <comma-separated list>` — files dropped by Step 1.4 file-class lookup as `context`.
 - `Skipped (type-gated, project type: <type>): <comma-separated list with allowed-types in parens>` — files dropped by Step 1 type-manifest.
 - `Skipped (logic, hash-equal, N files)` — count only; do not list. The absence-is-the-signal rule (Step 2) means in-sync logic files don't need enumeration.
+- `Skipped (logic-drift, PUSH+auto, N files): <comma-separated list> — run /pull-seeds in <repo> to bring project forward to seeds` — files where PUSH+auto found logic-drift and skipped per the Step 2 rule. Listing the files matters here (unlike hash-equal) because the user needs to know which files to /pull-seeds on.
 - `Skipped (already-proposed, N file): <comma-separated list with PR URLs>` — also stays as table rows per Step 3, surfaced here as a count for grep.
 - For each hybrid/unmatched file with Skip hunks (in mode:auto), one line per file: `<file>: <N> Project-only hunks skipped (substitutions/customization)` and/or `<file>: <N> Both-modified hunks skipped (mode:auto default)`. Aggregate by file, not by hunk — don't enumerate each hunk individually.
 
@@ -272,6 +285,7 @@ Remind the user to review the diff before committing. For PUSH, that's the seeds
 - Never act on "pattern flags" without explicit approval. The whole reason `shared/` doesn't exist yet is that premature extraction is worse than duplication. In `mode: auto`, "explicit approval" is impossible by definition — flags get reported, never acted on.
 - In `mode: interactive`, when classifying, if you're not sure whether something is structural or project-specific, ask before deciding. In `mode: auto`, default to skip and surface the ambiguity in the Step 6 report so the PR reviewer can make the call.
 - **Silence is signal in `mode: auto`.** A nightly PR's action-row table being empty (or near-empty) is the working state, not a bug. The Step 6 summary tells the reviewer what was checked and dropped; the table tells them what to act on. Do not emit "Equal" / "No action" / "Match" rows to demonstrate completeness — completeness is implied by the agent running at all.
+- **Seeds is the source of truth for logic-class files in `mode: auto`.** PULL+logic+drift = project gets the seeds version (the project was stale). PUSH+logic+drift+auto = skip (cannot safely assume project-side change is a real upstream improvement; default to safe-skip and recommend the user run /pull-seeds). PUSH+logic+drift+interactive = ask the human which side is canonical; they decide.
 - Be specific in your output. File paths, line numbers, exact hunks. Don't paraphrase diffs.
 - One run, one commit per repo per direction. Don't mix backports and bug fixes in the same commit.
 
