@@ -145,6 +145,7 @@ Then classify each hunk into one of three actions:
 - Stack choices specific to this project's domain
 - Concrete content filling in a `[placeholder]` slot
 - **Default action for `Project-only` hunks in PULL direction** (and for `Both-modified` in `mode: auto` — see below)
+- **`Project-only` hunks in PUSH + `mode: auto` direction (see Backport rule below for full reasoning).**
 
 **Backport — structural improvement:**
 - New step added to a skill
@@ -154,7 +155,10 @@ Then classify each hunk into one of three actions:
 - New branching or conditional behavior
 - Improvements to agent prompts or review checklists
 - New section header / subsection that isn't `[placeholder]` content
-- **Default action for `Template-only` hunks in PULL direction** (and `Project-only` hunks in PUSH direction, after generification)
+- **Default action for `Template-only` hunks in PULL direction.**
+- **`Project-only` hunks in PUSH direction — direction- and mode-aware:**
+  - **PUSH in `mode: interactive`:** classify as Backport, prompt the user per hunk after generification. Real improvements get accepted; stale/cruft gets skipped. Human judgment per hunk.
+  - **PUSH in `mode: auto`:** classify as **Skip** with a Step 6 surface line. The agent cannot distinguish "project has a structural improvement seeds is missing" from "project has stale content seeds already evolved past" — and the latter is overwhelmingly the common case, because seeds is the canonical reference and downstream sync sometimes leaves a project behind without anyone noticing. Surface the file + hunk count in Step 6 and recommend: run `/pull-seeds` on the source project first to verify the project isn't behind seeds; if genuine improvements remain afterwards, interactive `/push-seeds` applies them with human judgment per hunk. The 2026-05-30 crewculator (seeds#85) and crewbook (seeds#86) upstream PRs both proposed regressing seeds template to older project versions of `dev/claude/docs/AGENTS.md` — exactly the failure mode this rule prevents.
 
 **Flag — pattern emerging:**
 - A change that looks useful in BOTH `dev/` and `domain/` contexts
@@ -169,7 +173,7 @@ The classification table contains **action rows only** in `mode: auto`. Skip row
 
 **Mode dependency:**
 
-- **`mode: auto` (nightly Routine PR bodies):** Step 3 table includes ONLY rows where `Classification` is `Backport`, `Forward-port`, or `Flag`. Every Skip row — including Type-gated, Class-gated: context, Project-only-substitution, Both-modified-in-auto, hash-equal logic files, **logic-drift on PUSH (skipped per Step 2)**, and unmatched-skips — is omitted from the table and aggregated in Step 6 below. Already-proposed is the lone Skip exception: those rows STAY in the table with their PR URL because the reviewer needs to see the existing-PR link inline.
+- **`mode: auto` (nightly Routine PR bodies):** Step 3 table includes ONLY rows where `Classification` is `Backport`, `Forward-port`, or `Flag`. Every Skip row — including Type-gated, Class-gated: context, Project-only-substitution, **Project-only Backport candidates on PUSH+auto (skipped per Step 2)**, Both-modified-in-auto, hash-equal logic files, logic-drift on PUSH (skipped per Step 2), and unmatched-skips — is omitted from the table and aggregated in Step 6 below. Already-proposed is the lone Skip exception: those rows STAY in the table with their PR URL because the reviewer needs to see the existing-PR link inline.
 - **`mode: interactive` (manual `/push-seeds` / `/pull-seeds`):** Step 3 table includes ALL classified rows (Skip + Backport + Forward-port + Flag). The human is driving and wants full visibility for the prompt loop.
 
 **Table shape (both modes):**
@@ -210,6 +214,7 @@ The classification table contains **action rows only** in `mode: auto`. Skip row
 - Emit the action-row table; do NOT prompt.
 - Apply every **backport**/**forward-port**/**logic-drift Forward-port** automatically in Step 4.
 - **Logic-drift Skip rows (PUSH+auto)** are surfaced in Step 6 only — no Step 4 apply.
+- **Project-only Skip rows in hybrid/unmatched files (PUSH+auto)** are surfaced in Step 6 only — no Step 4 apply.
 - Pattern flags are recorded in Step 6 only — never applied.
 - Continue straight through to Step 4.
 
@@ -225,6 +230,8 @@ The apply target depends on direction:
    - Specific deadline → "the project deadline"
    - Project-specific paths → generic equivalents
 4. Write the updated template file
+
+**PUSH + `Project-only` + `mode: auto` — do not apply.** Per the Step 2 rule above, hybrid/unmatched files' `Project-only` hunks in mode:auto do not get backported automatically. The agent cannot judge "improvement" vs "stale content" without context the Routine doesn't have, and the latter is the common case. Surface as a Step 6 line and let the user resolve via `/pull-seeds` (if the project's content is stale and should be replaced with seeds') or interactive `/push-seeds` (if it's genuinely an improvement worth backporting). Mode: interactive PUSH still applies Project-only hunks per the user's per-hunk approval.
 
 **PULL (downstream, seeds → project):**
 1. Read the target project file (`.claude/skills/<name>/SKILL.md`, `docs/<name>.md`, etc.)
@@ -268,8 +275,9 @@ Output the following sections in order. Sections with no entries are omitted ent
 - `Skipped (type-gated, project type: <type>): <comma-separated list with allowed-types in parens>` — files dropped by Step 1 type-manifest.
 - `Skipped (logic, hash-equal, N files)` — count only; do not list. The absence-is-the-signal rule (Step 2) means in-sync logic files don't need enumeration.
 - `Skipped (logic-drift, PUSH+auto, N files): <comma-separated list> — run /pull-seeds in <repo> to bring project forward to seeds` — files where PUSH+auto found logic-drift and skipped per the Step 2 rule. Listing the files matters here (unlike hash-equal) because the user needs to know which files to /pull-seeds on.
+- `Skipped (hybrid Project-only, PUSH+auto, N hunks across M files): <file list with per-file hunk counts> — run /pull-seeds in <repo> first to verify the project isn't behind seeds; if genuine improvements remain, interactive /push-seeds applies them with human judgment per hunk` — hunks where PUSH+auto found Project-only content in hybrid/unmatched files and skipped per the Step 2 rule. Listing the files matters because the user needs a concrete action item per file.
 - `Skipped (already-proposed, N file): <comma-separated list with PR URLs>` — also stays as table rows per Step 3, surfaced here as a count for grep.
-- For each hybrid/unmatched file with Skip hunks (in mode:auto), one line per file: `<file>: <N> Project-only hunks skipped (substitutions/customization)` and/or `<file>: <N> Both-modified hunks skipped (mode:auto default)`. Aggregate by file, not by hunk — don't enumerate each hunk individually.
+- For each hybrid/unmatched file with Skip hunks (in mode:auto) that didn't fall under the PUSH+auto Project-only category above, one line per file: `<file>: <N> Project-only hunks skipped (substitutions/customization, PULL direction)` and/or `<file>: <N> Both-modified hunks skipped (mode:auto default)`. Aggregate by file, not by hunk — don't enumerate each hunk individually.
 
 **Patterns flagged** for future `shared/` extraction (if any).
 
@@ -285,7 +293,10 @@ Remind the user to review the diff before committing. For PUSH, that's the seeds
 - Never act on "pattern flags" without explicit approval. The whole reason `shared/` doesn't exist yet is that premature extraction is worse than duplication. In `mode: auto`, "explicit approval" is impossible by definition — flags get reported, never acted on.
 - In `mode: interactive`, when classifying, if you're not sure whether something is structural or project-specific, ask before deciding. In `mode: auto`, default to skip and surface the ambiguity in the Step 6 report so the PR reviewer can make the call.
 - **Silence is signal in `mode: auto`.** A nightly PR's action-row table being empty (or near-empty) is the working state, not a bug. The Step 6 summary tells the reviewer what was checked and dropped; the table tells them what to act on. Do not emit "Equal" / "No action" / "Match" rows to demonstrate completeness — completeness is implied by the agent running at all.
-- **Seeds is the source of truth for logic-class files in `mode: auto`.** PULL+logic+drift = project gets the seeds version (the project was stale). PUSH+logic+drift+auto = skip (cannot safely assume project-side change is a real upstream improvement; default to safe-skip and recommend the user run /pull-seeds). PUSH+logic+drift+interactive = ask the human which side is canonical; they decide.
+- **Seeds is the canonical reference in `mode: auto`. PUSH-direction backports require human judgment.** The Routine cannot distinguish "project has structural improvement worth backporting" from "project has stale content seeds already evolved past" — and the latter is overwhelmingly the common case. Two corollaries that fall out:
+  - **Logic class:** PUSH+drift+auto = skip with /pull-seeds recommendation; PULL+drift = full overwrite from seeds; interactive lets the human pick direction per file.
+  - **Hybrid/unmatched class:** PUSH+Project-only+auto = skip with /pull-seeds recommendation (the 2026-05-30 crewculator/crewbook regressions are the canonical example); PULL+Template-only = forward-port; PUSH+Project-only+interactive = prompt per hunk; Both-modified+auto = skip in either direction.
+  - **Interactive `/push-seeds` is the only sanctioned path for upstream Project-only backports.** The auto-Routine surfaces candidates in Step 6 with a `/pull-seeds` recommendation as the first remediation step; humans decide via interactive sessions if real improvements remain after the pull.
 - Be specific in your output. File paths, line numbers, exact hunks. Don't paraphrase diffs.
 - One run, one commit per repo per direction. Don't mix backports and bug fixes in the same commit.
 
