@@ -20,7 +20,7 @@ yarn-error.log*
 # Claude Code local state
 .claude/settings.local.json
 
-# Sessions worktree (DEC-014) — orphan sessions branch checked out here
+# Sessions worktree (DEC-S014) — orphan sessions branch checked out here
 .sessions-worktree/
 
 # Captain's Log — credentials + legacy state files (pre-DEC-012, no longer written)

@@ -12,7 +12,7 @@ Keep the seeds templates and active projects in sync. You run in one of two dire
 - **PUSH (upstream, project → seeds):** invoked by `/push-seeds`. Classify project-side changes; backport structural improvements into seeds templates; leave project-specific tweaks alone.
 - **PULL (downstream, seeds → project):** invoked by `/pull-seeds`. Classify template-side changes since the project's last sync; apply structural improvements into the project's live files; leave the project's own customizations alone.
 
-Same classifier, two directions (DEC-003). The hard part — deciding "structural improvement" vs "project-specific substitution" — is direction-symmetric.
+Same classifier, two directions (DEC-S003). The hard part — deciding "structural improvement" vs "project-specific substitution" — is direction-symmetric.
 
 ## Direction parameter
 
@@ -23,7 +23,7 @@ The invoking skill passes `direction: push` or `direction: pull` in your prompt.
 The invoking caller passes `mode: interactive` (default) or `mode: auto`.
 
 - **`mode: interactive`** — the original behavior. Step 3 presents a table and asks "Apply? (y/n)" per backport hunk and "Keep watching, or act now?" per pattern flag. Used by `/push-seeds`, `/pull-seeds`, and any direct human invocation.
-- **`mode: auto`** — non-interactive automation. Used by the nightly sync Routine (DEC-010). Behavior changes:
+- **`mode: auto`** — non-interactive automation. Used by the nightly sync Routine (DEC-S010). Behavior changes:
   - Skip Step 3 prompts entirely. Make your own judgment calls.
   - Apply every hunk classified as **backport** / **forward-port**. Skip every **skip** hunk silently.
   - Pattern **flag** entries are recorded in the Step 6 report only — never applied, never extracted.
@@ -41,7 +41,7 @@ If `mode` is missing, default to `interactive`. If `mode: auto` is requested but
 - `<seeds>/dev/` — template for dev projects (Next.js + Supabase shape)
 - `<seeds>/domain/` — template for non-dev domains (bread, tomatoes, ops, etc.)
 - `<seeds>/seeds-version` — the latest published schema version (the calling skill should have already gated on compatibility before invoking you, but verify)
-- `<seeds>/.claude/type-manifest.yaml` — project-type gating manifest (DEC-011). Lists the small set of `dev/claude/` files that only apply to certain project types (e.g. `agents/ui-reviewer.md` only applies to `webapp`-type projects)
+- `<seeds>/.claude/type-manifest.yaml` — project-type gating manifest (DEC-S011). Lists the small set of `dev/claude/` files that only apply to certain project types (e.g. `agents/ui-reviewer.md` only applies to `webapp`-type projects)
 - The active project's `.claude/project-type` — single-line file naming the project's type (`webapp` or `tool`). Optional; if absent, no type-gating is applied
 - The active project's `.claude/agents/`, `.claude/skills/`, `CLAUDE.md`, and `docs/` — the live versions
 - `<seeds>/dev/claude/skills/push-seeds/SKILL.md` and `<seeds>/dev/claude/skills/pull-seeds/SKILL.md` — the invocation wrappers that call you
@@ -57,7 +57,7 @@ If `mode` is missing, default to `interactive`. If `mode: auto` is requested but
 
 ### Step 1 — Diff
 
-**Project-type gating (DEC-011).** Before scoping the diff, read `<project>/.claude/project-type` (single-line file: `webapp`, `tool`, or other supported tokens). Then read `<seeds>/.claude/type-manifest.yaml` for the gating rules. For every file pair below, check whether the template-side path appears in the manifest. If it does and the project's type is not in the manifest's allowed list for that path, **drop the pair from the diff scope** and record one entry for the Step 6 report:
+**Project-type gating (DEC-S011).** Before scoping the diff, read `<project>/.claude/project-type` (single-line file: `webapp`, `tool`, or other supported tokens). Then read `<seeds>/.claude/type-manifest.yaml` for the gating rules. For every file pair below, check whether the template-side path appears in the manifest. If it does and the project's type is not in the manifest's allowed list for that path, **drop the pair from the diff scope** and record one entry for the Step 6 report:
 
 > `<file>` skipped — project type `<type>`, file applies to `[<allowed types>]` (manifest-gated)
 
