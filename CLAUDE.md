@@ -73,7 +73,7 @@ captains-log/
 | `docs/DECISIONS.md` | DEC-004/007/008/009/010/011/012 — DEC numbering preserved from helm |
 | `helm:docs/DECISIONS.md` | Cross-repo decisions still in helm: DEC-003 (log format), DEC-005 (digest delivery), DEC-006 (Scrawl precedent for DEC-007) |
 | `.claude/seeds-version` | Schema version this project was last installed at. Used by `/pull-seeds` to gate template syncs. |
-| `.claude/project-type` | Project type — `webapp` or `tool`. Used by `@sync-config` to gate template files that don't apply to this project's type (DEC-011). Optional. |
+| `.claude/project-type` | Project type — `webapp` or `tool`. Used by `@sync-config` to gate template files that don't apply to this project's type (DEC-S011). Optional. |
 
 ## Micro Workflow (every task, no exceptions)
 
@@ -137,7 +137,7 @@ tail -f raw/$(date -u +%F).log
 | `/its-alive` | Session start | Stamp time, ensure `.sessions-worktree/` exists, open per-session file on orphan `sessions` branch, capture transcript, read context, recommend task |
 | `/pause-this` | Mid-session break | Build check, commit WIP on the task branch, note pause in session file (on sessions branch) |
 | `/restart-this` | Resume from pause | Reload context, continue same session |
-| `/kill-this` | **Per task** (DEC-013) | Build check, commit code on task branch, open PR, append `## Task <N>` block to session file. Multiple runs per session — one per task. No time math. |
+| `/kill-this` | **Per task** (DEC-S013) | Build check, commit code on task branch, open PR, append `## Task <N>` block to session file. Multiple runs per session — one per task. No time math. |
 | `/its-dead` | Session end (once per window) | Stamp `ended:`, tally points, display wall_clock to screen, close session file. No time math, no version bump (those moved to `/retro`). Merge PRs whenever — order doesn't matter. |
 | `/start-phase` | Phase boundary (start) | Materialize phase tasks from PROJECT_PLAN.md into Issues with phase:N + points:X labels |
 | `/retro` | Phase boundary (end) | Compute per-session wall/dev/review from `started`/`ended`/transcript/PR-timestamps. Aggregate phase velocity. Mark `[x]`, reconcile drift, append to RETROSPECTIVES.md, patch-bump per merged PR + minor-bump at close (dev projects). |
@@ -169,7 +169,7 @@ tail -f raw/$(date -u +%F).log
 - **Agents:** model is set in each agent's frontmatter. Don't override unless the task warrants it.
 - **New agents:** default to Sonnet. Add `model: opus` frontmatter only for architecture-level agents.
 
-## PR Workflow (DEC-013 + DEC-014)
+## PR Workflow (DEC-S013 + DEC-S014)
 
 - Each **task** gets a branch (`git checkout -b task/X.Y-short-description`). Multiple tasks per session is normal.
 - `/kill-this` runs **per task** — opens a PR for the current task branch and appends a `## Task <N>` block to the session file (on the orphan `sessions` branch). Run it as many times as you have tasks.
@@ -179,11 +179,11 @@ tail -f raw/$(date -u +%F).log
 - Keep no more than 3 open PRs at once. Prefer 1.
 - Self-approve unless a stakeholder review is explicitly needed.
 
-## Versioning (DEC-007)
+## Versioning (DEC-S007)
 
 Every dev project carries a SemVer version in `package.json`, mirrored to a git tag (`vX.Y.Z`) on `main`.
 
-**Three triggers (DEC-013 — all bumps run at `/retro`):**
+**Three triggers (DEC-S013 — all bumps run at `/retro`):**
 - **Patch:** `/retro` Step 8.2 — one bump + CHANGELOG entry per PR merged during the phase window. Title pulled from GitHub.
 - **Minor:** `/retro` Step 8.3 — bumped at phase close after all patches land. CHANGELOG entry summarizes the phase.
 - **Major:** `/bump-major` manual. User supplies the breaking-change rationale.
