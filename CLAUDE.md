@@ -141,8 +141,8 @@ tail -f raw/$(date -u +%F).log
 | `/its-dead` | Session end (once per window) | Stamp `ended:`, tally points, display wall_clock to screen, close session file. No time math, no version bump (those moved to `/retro`). Merge PRs whenever — order doesn't matter. |
 | `/start-phase` | Phase boundary (start) | Materialize phase tasks from PROJECT_PLAN.md into Issues with phase:N + points:X labels |
 | `/retro` | Phase boundary (end) | Compute per-session wall/dev/review from `started`/`ended`/transcript/PR-timestamps. Aggregate phase velocity. Mark `[x]`, reconcile drift, append to RETROSPECTIVES.md, patch-bump per merged PR + minor-bump at close (dev projects). |
-| `/bump-major` | Breaking change | Manually bump major version. CHANGELOG.md entry + tag (on main) or deferred tag (on staging). Dev projects only |
-| `/promote-staging` | Ship staging to prod | ff-merge `staging` → `main`, tag the release with current `package.json` version, push both. Staging-flow projects only |
+| `/bump-major` | Breaking change | Manually bump major version. CHANGELOG.md entry + tag on the trunk (`main`). Dev projects only |
+| `/promote-production` | Ship trunk to prod | ff-merge `main` → `production` (deploy-only; tag already on the commit), push. Projects with a `production` branch only |
 | `/push-seeds` | After workflow improvements | Backport project-side improvements to the seeds templates via @sync-config |
 | `/pull-seeds` | After seeds gets new improvements | Pull template changes into this project — schema-version-gated, applied via @sync-config |
 | `/read-the-tape` | After a session worth learning from | Audit JSONL transcript, find anti-patterns, propose skill improvements |
@@ -188,7 +188,7 @@ Every dev project carries a SemVer version in `package.json`, mirrored to a git 
 - **Minor:** `/retro` Step 8.3 — bumped at phase close after all patches land. CHANGELOG entry summarizes the phase.
 - **Major:** `/bump-major` manual. User supplies the breaking-change rationale.
 
-**Tag rule:** tags are only ever applied on `main`. In staging-flow projects, bumps on `staging` are untagged; the tag lands when `/promote-staging` ff-merges to `main`.
+**Tag rule:** tags are applied on the active trunk (`main`) at bump time (DEC-S022). A `production` deploy branch, if present, receives the already-tagged commit via `/promote-production` ff-merge — promotion does not tag.
 
 **Detection:** these skills check `package.json` exists at the repo root before bumping. If it doesn't (template/markdown-only project), they no-op silently.
 
