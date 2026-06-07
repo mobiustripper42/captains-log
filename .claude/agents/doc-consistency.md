@@ -95,7 +95,7 @@ If a category surfaces something interesting but out-of-scope, name it once in a
 - ... (one row per category investigated)
 
 ## Out of scope (not investigated)
-- <one line per item you noticed but explicitly didn't pursue, e.g. "DEC-S007 body references DEC-S013 which is not stubbed locally — out of scope (see @sync-config or manual review)">
+- <one line per item you noticed but explicitly didn't pursue, e.g. "DEC-007 body references DEC-013 which is not stubbed locally — out of scope (see @sync-config or manual review)">
 
 ## Files
 <list of every file read, with byte counts, for the reviewer's reference>
