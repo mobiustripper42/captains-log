@@ -214,7 +214,7 @@ Format (Keep-a-Changelog inspired but simpler):
 - **JSON parsing in Bash:** Prefer `gh ... --jq '...'` (built-in jq via `gh`) or `jq` over `python3 -c "import json,sys; ..."` one-liners. The python invocations trigger per-pattern permission prompts (each unique argument list is a new allowlist entry), while `gh --jq` runs under the existing `Bash(gh ...)` allowance. For non-`gh` JSON, install/use `jq` directly. Reserve python for cases where the data shape genuinely needs control flow.
 - **Bug reports:** Create a GitHub issue (`gh issue create`), tag `bug`, add to current or next phase.
 
-## Approval Before Action
+## Approval Before Action (all tasks)
 
 For every task — not just bugs — explain the plan and wait for approval before
 doing anything:
