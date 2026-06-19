@@ -101,7 +101,7 @@ The shell's `## Micro Workflow` is webapp-shaped (branch + Playwright + pgTAP + 
 
 ## Migration Protocol (project)
 
-**N/A — no Supabase.** The shell's Supabase toolchain, `safe-supabase.sh` guard (DEC-S009), and Supabase↔Vercel env-var sync don't apply. Storage is **SQLite (`better-sqlite3`), the source of truth (DEC-012)**; schema lives in code, not a migrations ledger. Google Sheets is an async presentation copy, not a database. The shell's universal discipline (don't hand-edit live data structures carelessly, schema changes are deliberate) still holds in spirit.
+**No Supabase** — the shell's Supabase *toolchain*, `safe-supabase.sh` guard (DEC-S009), and Supabase↔Vercel env-var sync are N/A. But the shell's migration *discipline* genuinely applies: storage is **SQLite (`better-sqlite3`), the source of truth (DEC-012)**, and **schema changes go through numbered migrations** — `lib/migrations/NNN_*.sql` applied in order by `lib/migrate.js`, gated on the `user_version` pragma (FK enforcement off during table-rebuild migrations, `foreign_key_check` before commit). Add a new numbered file; never hand-patch an already-applied migration. Google Sheets is an async presentation copy (DEC-009 as amended), not a database.
 
 ## Conventions
 
@@ -117,8 +117,8 @@ The shell's `## Micro Workflow` is webapp-shaped (branch + Playwright + pgTAP + 
 
 ### Logs
 - Plaintext raw message log: `<ISO-timestamp> | <source>:<sender_id> | <captain> | <body>` per line, one file per UTC day (e.g. `telegram:123456789`)
-- Structured entries: JSON array per ET day in `structured/YYYY-MM-DD.json`
 - Service logs: console + journalctl (in prod). No log library in V1.
+- *(There is no separate structured-log file — `lib/structured-log.js` was deleted when SQLite became the source of truth, DEC-012. Structured data lives in the DB.)*
 
 ### Storage rules
 - `data/` (SQLite DB) is **gitignored** — source of truth per DEC-012, lives on server filesystem
