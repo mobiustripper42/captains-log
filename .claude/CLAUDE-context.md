@@ -146,4 +146,4 @@ Captain's Log is a lightweight bot and deliberately runs **leaner than the shell
 - **Agents:** model set in each agent's frontmatter; don't override unless the task warrants it.
 - **New agents:** default to Sonnet; add `model: opus` only for architecture-level agents.
 
-⚠️ **Unresolved drift to confirm:** `.claude/agents/architect.md` frontmatter currently pins **`model: fable`**, but this project's prior CLAUDE.md described `@architect` as **Opus**. The migration left the frontmatter file untouched — so `@architect` runs Fable today. Decide which is intended (Sonnet / Opus / Fable) and align the frontmatter; this note is the only thing tracking the discrepancy.
+✅ **Resolved (seeds DEC-S029 — Fable disabled):** `.claude/agents/architect.md` now pins **`model: opus`** (was `model: fable`). @architect runs Opus, matching this project's prior intent.
